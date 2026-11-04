@@ -159,12 +159,17 @@ make clean                   # remove build output
 1. **Choose a library folder** on first launch. An empty folder (or a new one) works best.
    Switch later from **Library** at the bottom of the sidebar.
 2. **Add photos.** Go to *Photos* and drop, paste or pick images, then tag them
-   by what they show. A photo can have several tags. Open a photo and edit **Name** to rename
-   its display label; results have the same field under **Edit**. Names are trimmed and limited
+   by what they show. A photo can have several tags. Open a photo for a two-column inspector with a media
+   preview and details. Click its title to edit the display name; results have the same
+   inspector under **Edit**. Enter or blur keeps a title edit; Esc reverts it. Names are trimmed and limited
    to 200 characters. Clear the field to restore the original filename stem (sources) or date
    (results). Renaming changes metadata only; files and links keep their IDs.
+   Use **Folder** to choose a folder or **New folder…** to create one inline. The same
+   menu appears in **Move to…**. Type in **+ Add tag** to choose or create tags; Enter or
+   comma adds a chip, × removes it, and Backspace in an empty field removes the last chip.
+   Arrow keys navigate suggestions and Esc closes the menu.
 3. **Create a prompt** with **+ New** (⌘N). Paste the text, give it a title, and choose
-   which kinds of photo it needs. Pasting a long block of text into an empty prompt grid starts
+   which kinds of photo it needs. Needs and style tags use separate token fields. Pasting a long block of text into an empty prompt grid starts
    a new prompt for you.
 4. **Try it.** Open the prompt, click **Copy prompt**, and send one of the suggested photos to
    ChatGPT: drag it into the chat, or select it, press ⌘C and paste there.
@@ -188,7 +193,8 @@ make clean                   # remove build output
 | Esc | Close a dialog or the full-size view |
 
 Form dialogs keep **Cancel** and the primary action beside the title, with errors just
-below. Enter in a single-line field submits; Esc cancels. Long content scrolls beneath the
+below. ⌘Enter saves the form; Esc cancels when no control is consuming it. Enter in a
+name, folder-creation or tag field commits that edit; other single-line fields submit. Long content scrolls beneath the
 header; long prompt text and tag-manager lists have their own scroll area.
 
 Tag operations save each changed record atomically, but the whole operation is not a

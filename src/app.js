@@ -1,3 +1,4 @@
+import { folderControl, tokenControl, inlineName, mountControls } from "./controls.js";
 import { createPromptGrid } from "./prompt-cards.js";
 import { sourcePhotoPicker, createResultSelection, sourceName, resultName, stem, mediaPoster, mediaPreview, mediaBadge, audioPlaceholder } from "./result-tools.js";
 
@@ -10,14 +11,6 @@ const esc = (value) =>
     /[&<>"']/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
   );
-const split = (text) => [
-  ...new Set(
-    text
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean),
-  ),
-];
 const asset = (path) => (path ? convertFileSrc(path) : "");
 const main = $("#main"),
   modal = $("#modal"),
@@ -50,7 +43,7 @@ const folders = () => library?.folders || [];
 const folderOf = (s) => folders().find((f) => f.id === s.folder)?.id || "";
 const folderLabel = (id) => folders().find((f) => f.id === id)?.name || "Unfiled";
 function folderPicker(selected = "") {
-  return `<label class="field">Folder<select name="folder"><option value="">Unfiled</option>${folders().map((f) => `<option value="${esc(f.id)}" ${f.id === selected ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select></label>`;
+  return folderControl(selected, esc);
 }
 function folderForm(id = null) {
   const f = folders().find((f) => f.id === id);
@@ -134,7 +127,10 @@ async function task(fn) {
     $("#busy").hidden = true;
   }
 }
+let dialogControls = null;
 function showModal(title, body, submit) {
+  dialogControls?.destroy();
+  modal.classList.toggle("inspector-dialog", body.includes('class="item-inspector"'));
   modalSubmit = submit;
   modal.classList.toggle("tag-manager", title === "Manage tags");
   $("#modal-content").innerHTML =
@@ -150,10 +146,32 @@ function showModal(title, body, submit) {
     text.addEventListener("input", grow);
     requestAnimationFrame(grow);
   }
+  dialogControls = mountControls($("#dialog-form"), {
+    folders, tags: () => library?.tags || [], esc, tagColor, report, normalizeName: stem,
+    createFolder: async name => {
+      const folder = await invoke("create_folder", { name });
+      library.folders = [...folders(), folder];
+      renderSidebar();
+      return folder;
+    },
+  });
+  const media = $(".inspector-preview img, .inspector-preview video, .inspector-preview audio", modal);
+  const metadata = $(".media-metadata", modal);
+  if (media && metadata) {
+    const update = () => {
+      const width = media.naturalWidth || media.videoWidth, height = media.naturalHeight || media.videoHeight;
+      const duration = Number.isFinite(media.duration) ? media.duration : Number(metadata.dataset.duration);
+      metadata.textContent = metadata.dataset.original + (width && height && !media.closest('.audio-preview') ? ` · ${width}×${height}` : '') + (duration > 0 ? ` · ${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, '0')}` : '');
+    };
+    media.addEventListener('load', update); media.addEventListener('loadedmetadata', update);
+    $(".inspector-preview audio", modal)?.addEventListener('loadedmetadata', e => { metadata.dataset.duration = e.target.duration; update(); });
+    update();
+  }
   if (!modal.open) modal.showModal();
-  requestAnimationFrame(() => $("input:not([type=checkbox]),textarea,button", $("#dialog-form"))?.focus());
+  requestAnimationFrame(() => $(modal.classList.contains("inspector-dialog") ? ".inline-name" : "input:not([type=checkbox]):not([type=hidden]),textarea,button", $("#dialog-form"))?.focus());
 }
 function closeModal() {
+  dialogControls?.destroy();
   modal.close();
   modalSubmit = null;
 }
@@ -163,11 +181,11 @@ function footer(label = "Save") {
 function field(label, name, value = "", { area = false, full = false, required = false, rows = 2, hint = "" } = {}) {
   return `<label class="field ${full ? "full" : ""}">${esc(label)}${area ? `<textarea name="${name}" rows="${rows}" ${required ? "required" : ""}>${esc(value)}</textarea>` : `<input name="${name}" value="${esc(value)}" ${required ? "required" : ""}>`}${hint ? `<small>${esc(hint)}</small>` : ""}</label>`;
 }
-function tagChecks(name, chosen = []) {
-  return `<div class="checks">${[...new Set([...library.tags, ...chosen])].map((t) => `<label class="check"><input type="checkbox" name="${name}" value="${esc(t)}" ${chosen.includes(t) ? "checked" : ""}>${esc(t)}</label>`).join("")}</div>`;
+function tagTokens(name, chosen = [], label = "Tags", hint = "") {
+  return tokenControl(name, chosen, esc, label, hint);
 }
-function collectedTags(form, name, extra) {
-  return [...new Set([...new FormData(form).getAll(name), ...split(form.elements[extra]?.value || "")])];
+function collectedTags(form, name) {
+  return [...new Set(new FormData(form).getAll(name))];
 }
 function warnings() {
   return library.warnings.length
@@ -343,13 +361,13 @@ function editPrompt(existing = null, text = "") {
   const p = existing;
   showModal(
     p ? "Edit prompt" : "New prompt",
-    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 4, full: true })}<div class="full"><label class="field">Photos it needs<small>Show photos tagged with any of these. Leave empty for a text-only prompt.</small></label><div class="needs-row">${tagChecks("needs", p?.needs)}${field("New needs tags", "newNeeds")}</div></div>${field("Style tags, separated by commas", "tags", p?.tags.join(", ") || "")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
+    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 4, full: true })}<div class="full"><label class="field">Photos it needs<small>Show photos tagged with any of these. Leave empty for a text-only prompt.</small></label>${tagTokens("needs", p?.needs, "Needs")}</div>${tagTokens("tags", p?.tags, "Style tags", "Describe the look or style of this prompt.")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
     async (form) => {
       const values = new FormData(form),
         meta = {
           title: values.get("title").trim(),
-          needs: collectedTags(form, "needs", "newNeeds"),
-          tags: split(values.get("tags")),
+          needs: collectedTags(form, "needs"),
+          tags: values.getAll("tags"),
           sourceUrl: values.get("sourceUrl").trim(),
           notes: values.get("notes"),
           favorite: p?.favorite || false,
@@ -363,6 +381,12 @@ function editPrompt(existing = null, text = "") {
     },
   );
 }
+function inspector(item, name, fields, result) {
+  const copy = item.kind === "audio" ? "Copy audio" : item.kind === "video" ? "Copy video" : "Copy image";
+  const data = `data-id="${esc(item.id)}"`;
+  const icon = path => `<svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="${path}"/></svg>`;
+  return `<div class="item-inspector"><div class="inspector-media"><div class="inspector-preview">${mediaPreview(item, asset, esc, name, "source-preview")}</div><div class="media-actions">${button(result ? "copy-result" : "copy-image", icon('M8 8h12v12H8z M16 8V4H4v12h4') + copy, "", data)}${button(result ? "reveal-result" : "reveal", icon('M3 7h7l2 2h9v11H3z M3 7V4h7l2 3') + 'Reveal', "", data)}${button(result ? "delete-result" : "delete-source", icon('M4 6h16 M9 6V3h6v3 M6 6l1 15h10l1-15 M10 10v7 M14 10v7'), "danger trash-icon", `${data} title="Move to Trash" aria-label="Move to Trash"`)}</div></div><div class="inspector-details">${inlineName(name, esc, item.file || item.originalName || item.path)}<p class="media-metadata muted" data-original="${esc(item.originalName ? 'Original file: ' + item.originalName : 'Created ' + date(item.createdAt))}" data-duration="${item.durationSeconds || ''}"></p>${fields}</div></div>`;
+}
 function openSource(id) {
   const s = source(id);
   if (!s) return;
@@ -373,11 +397,12 @@ function openSource(id) {
   );
   showModal(
     sourceName(s),
-    `<div class="name-editor">${field("Name", "name", sourceName(s))}${s.name?.trim() ? `<small class="muted">Original file: ${esc(stem(s.originalName, s.file || s.originalName))}</small>` : ""}</div>${mediaPreview(s, asset, esc, sourceName(s), "source-preview")}${folderPicker(folderOf(s))}<div class="actions">${button("copy-image", s.kind === "audio" ? "Copy audio" : s.kind === "video" ? "Copy video" : "Copy image", "primary", `data-id="${esc(id)}"`)}${button("reveal", "Reveal in Finder", "", `data-id="${esc(id)}"`)}${button("delete-source", "Move to Trash", "danger", `data-id="${esc(id)}"`)}</div><div class="section-header"><h3>Tags</h3></div>${tagChecks("tags", s.tags)}<div class="tag-editor">${field("New tags, separated by commas", "newTags")}</div><div class="tag-editor">${field("Note", "note", s.note, { area: true })}</div><div class="source-uses"><h3>Results that used this photo (${uses.length})</h3>${uses.length ? uses.map(({ p, r }) => button("result", esc(`${p.title} · ${resultName(r, date)}`), "", `data-id="${r.id}" data-pid="${p.id}"`)).join("") : "<small>No linked results yet.</small>"}</div>${footer("Save photo details")}`,
+    `${inspector(s, sourceName(s), `${folderPicker(folderOf(s))}${tagTokens("tags", s.tags)}${field("Note", "note", s.note, { area: true })}<div class="source-uses"><h3>Used in ${uses.length} results</h3><div class="inspector-links">${uses.map(({p,r}) => button("result", `${mediaPoster(r, asset, esc, resultName(r,date))}<span class="sr-only">${esc(resultName(r,date))}</span>`, "inspector-thumb", `data-id="${esc(r.id)}" data-pid="${esc(p.id)}" title="${esc(p.title + ' · ' + resultName(r,date))}"`)).join("")}</div>${!uses.length ? '<small>No linked results yet.</small>' : ''}</div>`, false)}${footer("Save")}`,
+
     async (form) => {
       await invoke("update_source", {
         id,
-        tags: collectedTags(form, "tags", "newTags"),
+        tags: collectedTags(form, "tags"),
         note: form.elements.note.value,
         name: editedName(form.elements.name.value, sourceName(s), s.name, s.file || s.originalName),
       });
@@ -391,9 +416,9 @@ function openSource(id) {
 function importedTags(ids) {
   showModal(
     `Tag ${ids.length === 1 ? "your photo" : `your ${ids.length} photos`}`,
-    `<p class="muted">The originals have been copied into your library. Add tags to match them with prompts.</p>${tagChecks("tags")}<div class="tag-editor">${field("New tags, separated by commas", "newTags")}</div>${footer("Save tags")}`,
+    `<p class="muted">The originals have been copied into your library. Add tags to match them with prompts.</p>${tagTokens("tags")}${footer("Save tags")}`,
     async (form) => {
-      const tags = collectedTags(form, "tags", "newTags");
+      const tags = collectedTags(form, "tags");
       for (const id of ids) await invoke("update_source", { id, tags, note: "" });
       closeModal();
       await refresh();
@@ -493,10 +518,8 @@ function editResult() {
   lightbox.close();
   showModal(
     "Edit result",
-    `${field("Name", "name", resultName(r, date))}${photoPicker(
-      library.prompts.find((p) => p.id === pid),
-      r.sourcePhotos,
-    )}<div class="tag-editor">${field("Chat URL", "chatUrl", r.chatUrl)}</div><div class="tag-editor">${field("Model", "model", r.model)}</div><div class="tag-editor">${field("Note", "note", r.note, { area: true })}</div>${footer()}`,
+    `${inspector(r, resultName(r,date), `<div class="result-properties">${field("Chat URL", "chatUrl", r.chatUrl)}${field("Model", "model", r.model)}</div>${field("Note", "note", r.note, {area:true})}<div class="inspector-sources">${photoPicker(library.prompts.find(p => p.id === pid), r.sourcePhotos).replace('Photos used</legend>', 'Source photos</legend>')}</div>`, true)}${footer()}`,
+
     async (form) => {
       const f = new FormData(form);
       await invoke("update_result", {
@@ -726,6 +749,7 @@ const actions = {
     openSource(el.dataset.id);
   },
   "open-url": (el) => invoke("open_chat", { url: el.dataset.url }),
+  "reveal-result": () => invoke("reveal_in_finder", { path: lightItems[lightIndex].path }),
   "copy-result": async () => { await invoke("copy_image_to_clipboard", { path: lightItems[lightIndex].path }); toast("Copied"); },
   "edit-result": () => editResult(),
   "favorite-result": async () => {
@@ -751,8 +775,10 @@ document.addEventListener("click", async (e) => {
 });
 $("#modal-content").addEventListener("submit", (e) => {
   e.preventDefault();
+  dialogControls?.commit();
   if (modalSubmit) task(() => modalSubmit(e.target));
 });
+modal.addEventListener("close", () => dialogControls?.destroy());
 modal.addEventListener("cancel", (e) => {
   if (busy) e.preventDefault();
 });

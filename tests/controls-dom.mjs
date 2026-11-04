@@ -1,0 +1,56 @@
+// JSDOM_MODULE=/absolute/path/to/jsdom/lib/api.js node tests/controls-dom.mjs
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+const {JSDOM} = await import(process.env.JSDOM_MODULE || 'jsdom');
+const dom = new JSDOM('<dialog open><div class="dialog-heading"></div><form></form></dialog>', {runScripts:'outside-only', pretendToBeVisual:true});
+const w = dom.window, d = w.document, root = d.querySelector('form');
+w.eval((await readFile(new URL('../src/controls.js', import.meta.url), 'utf8')).replaceAll('export function', 'function'));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const folders = [{id:'z',name:'Zoo'}, {id:'a',name:'Alpha'}];
+root.innerHTML = w.folderControl('z',esc) + w.tokenControl('tags',['pet'],esc) + w.inlineName('Portrait',esc) + '<textarea name="note"></textarea>';
+let error = '', created = 0;
+const mounted = w.mountControls(root, {folders:()=>folders, tags:()=>['pet','portrait','<landscape>'], esc, tagColor:()=>2, report:e=>error=String(e), createFolder:async name=>{ created++; const f={id:'new',name}; folders.push(f); return f; }});
+const $ = s => d.querySelector(s);
+const key = (el,key,extra={}) => el.dispatchEvent(new w.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...extra}));
+const trigger = $('.folder-trigger');
+try {
+  trigger.querySelector('span').click();
+  assert.equal(trigger.getAttribute('aria-expanded'),'true');
+  assert.deepEqual([...d.querySelectorAll('[role=option]')].map(e=>e.textContent.trim()), ['Unfiled','Alpha','✓Zoo','New folder…']);
+  key(trigger,'ArrowDown'); assert.ok(trigger.getAttribute('aria-activedescendant'));
+  key(trigger,'Enter'); assert.equal($('[name=folder]').value,'');
+  trigger.click(); key(trigger,'ArrowUp'); assert.equal($('.highlighted').textContent,'New folder…'); key(trigger,'Escape'); assert.equal($('.control-popover'),null);
+  trigger.click(); d.body.click(); assert.equal($('.control-popover'),null);
+  trigger.click(); [...d.querySelectorAll('[role=option]')].at(-1).click();
+  const name = $('.control-popover input'); name.value='Travel <2026>'; key(name,'Enter');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(created,1); assert.equal($('[name=folder]').value,'new'); assert.match(trigger.textContent,/Travel <2026>/); assert.equal($('travel'),null);
+  trigger.click(); [...d.querySelectorAll('[role=option]')].at(-1).click();
+  $('.control-popover input').value='Alpha'; key($('.control-popover input'),'Enter');
+  assert.match(error,/already exists/); key($('.control-popover input'),'Escape');
+  // Placement flips upward and stays below header actions.
+  $('dialog').getBoundingClientRect = () => ({left:0,right:800,top:0,bottom:700,width:800});
+  $('.dialog-heading').getBoundingClientRect = () => ({bottom:90});
+  trigger.getBoundingClientRect = () => ({left:400,top:600,bottom:630,width:300});
+  trigger.click(); assert.ok(parseFloat($('.control-popover').style.top)<630); assert.ok(parseFloat($('.control-popover').style.top)>=90);
+  d.body.click();
+  const input = $('.token-input'); input.focus(); input.value='port'; input.dispatchEvent(new w.Event('input'));
+  assert.equal($('.control-popover mark').textContent,'port');
+  key(input,'ArrowDown'); key(input,'Enter');
+  const values = () => [...new w.FormData(root).getAll('tags')];
+  assert.deepEqual(values(),['pet','portrait']);
+  input.value='<new>'; key(input,'Enter'); assert.deepEqual(values(),['pet','portrait','<new>']); assert.equal($('new'),null);
+  $('[aria-label="Remove <new>"]').click(); assert.deepEqual(values(),['pet','portrait']);
+  key(input,'Backspace'); assert.deepEqual(values(),['pet']);
+  input.value='blue'; key(input,','); assert.deepEqual(values(),['pet','blue']);
+  input.value='PET'; key(input,'Enter'); assert.deepEqual(values(),['pet','blue']);
+  input.value='pending'; mounted.commit(); assert.deepEqual(values(),['pet','blue','pending']);
+  input.value='draft'; input.dispatchEvent(new w.Event('input')); key(input,'Escape'); assert.equal($('.control-popover'),null);
+  input.value=''; input.blur();
+  const title = $('.inline-name'); title.focus(); title.value='Changed'; key(title,'Enter'); assert.equal(title.value,'Changed');
+  title.focus(); title.value='Revert me'; key(title,'Escape'); assert.equal(title.value,'Changed');
+  title.focus(); title.value='Blur keeps this'; title.blur(); assert.equal(title.value,'Blur keeps this');
+  trigger.click(); mounted.destroy(); assert.equal($('.control-popover'),null); assert.equal(trigger.getAttribute('aria-expanded'),'false');
+  assert.equal($('select'),null); assert.equal($('input[type=checkbox]'),null);
+  console.log('PASS: folder order/selection/create/duplicate/Escape/outside click/placement/disposal; token autocomplete/highlight/keyboard/create/remove/Backspace/comma/dedup/save; inline name Enter/Escape/blur; safe user text');
+} finally { dom.window.close(); }

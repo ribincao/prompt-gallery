@@ -21,7 +21,7 @@ w.HTMLDialogElement.prototype.close = function () {
 };
 w.eval(`(${installMockBridge.toString()})();`);
 // Load the UI modules into the same DOM realm before the app entry point.
-for (const file of ["prompt-cards.js", "result-tools.js"]) {
+for (const file of ["prompt-cards.js", "result-tools.js", "controls.js"]) {
   w.eval(
     (await readFile(new URL(`../src/${file}`, import.meta.url), "utf8")).replaceAll("export function", "function"),
   );
@@ -45,6 +45,12 @@ function input(name, value) {
   const el = $(`#dialog-form [name=${name}]`);
   assert.ok(el, name);
   el.value = value;
+}
+async function addTag(name, value, key = "Enter") {
+  const el = $(`.token-control[data-name="${name}"] .token-input`);
+  el.focus(); el.value = value; el.dispatchEvent(new w.Event("input"));
+  el.dispatchEvent(new w.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  await tick();
 }
 async function save() {
   const form = $("#dialog-form");
@@ -78,7 +84,7 @@ try {
   await click("#nav-sources");
   await act("pick-sources");
   await wait(() => $("#modal").open, "import");
-  $("[name=tags][value=single]").checked = true;
+  await addTag("tags", "single");
   await save();
   assert.equal(w.testState.lib.sources[0].tags[0], "single");
   await act("open-folder");
@@ -110,10 +116,14 @@ try {
   assert.ok(w.testState.calls.some((c) => c.cmd === "copy_image_to_clipboard"));
   await click("#nav-prompts");
   await act("new-prompt");
+  assert.equal(d.querySelectorAll('.token-control').length, 2);
+  assert.ok($('.token-control[data-name=needs]'));
+  assert.ok($('.token-control[data-name=tags]'));
+  assert.equal($('#dialog-form .checks'), null);
   input("title", "Portrait <test>");
   const text = "  Illustrate this portrait.\nKeep the person recognizable.\n";
   input("text", text);
-  $("[name=needs][value=single]").checked = true;
+  await addTag("needs", "single");
   await save();
   assert.equal($("#toolbar h1").textContent, "Portrait <test>");
   assert.equal(d.querySelectorAll(".source-mini").length, 1);
@@ -150,7 +160,7 @@ try {
   await save();
   assert.equal($(".source-card").getAttribute("aria-label"), "Preview Original");
   await act("source");
-  assert.doesNotMatch($("#dialog-form").textContent, /Original file:/);
+  assert.match($("#dialog-form").textContent, /Original file: Original.png/);
   input("name", "Kujira <bucket>");
   await save();
   await act("back");
@@ -537,7 +547,11 @@ try {
   await act("pick-sources"); await wait(() => $("#modal").open, "folder import"); await save();
   assert.equal(w.testState.lib.sources[0].folder, fid);
   await act("select-sources"); await act("source"); await act("move-sources");
-  input("folder", ""); await save();
+  assert.equal($("#dialog-form select"), null);
+  await click('.folder-trigger span');
+  assert.equal($('.folder-trigger').getAttribute('aria-expanded'), 'true');
+  await click('.control-popover [role=option]');
+  await save();
   assert.equal(w.testState.lib.sources[0].folder, null);
   await act("source-root");
   $("#search").value = "Original"; $("#search").dispatchEvent(new w.Event("input"));
@@ -626,6 +640,34 @@ try {
   assert.equal(gridCard("navigation-0"), unchangedCard);
   await click("#nav-sources");
   assert.ok($(".new-folder-icon")); assert.equal($(".new-folder-label").textContent, "+ New folder");
+  // Inspector controls use the real app save path, without touching a library on disk.
+  await click('[data-action="open-folder"][data-id=""]');
+  await act('source');
+  assert.ok($('.item-inspector .inspector-preview'));
+  const titleInput = $('.inline-name');
+  titleInput.focus(); const initialTitle = titleInput.value;
+  titleInput.value = 'Keep this';
+  titleInput.dispatchEvent(new w.KeyboardEvent('keydown', {key:'Enter',bubbles:true,cancelable:true}));
+  assert.equal($('#modal').open,true, 'inline Enter must not save the form');
+  titleInput.focus(); titleInput.value='Revert this';
+  titleInput.dispatchEvent(new w.KeyboardEvent('keydown', {key:'Escape',bubbles:true,cancelable:true}));
+  assert.equal(titleInput.value,'Keep this');
+  titleInput.value=initialTitle;
+  const preview = $('.inspector-preview img');
+  Object.defineProperties(preview, {naturalWidth:{value:1024}, naturalHeight:{value:768}});
+  preview.dispatchEvent(new w.Event('load'));
+  assert.match($('.media-metadata').textContent,/1024×768/);
+  await click('.folder-trigger');
+  [...d.querySelectorAll('.control-popover [role=option]')].at(-1).click();
+  const newFolder = $('.control-popover input'); newFolder.value='Inspector folder';
+  newFolder.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+  await wait(() => $('[name=folder]').value !== '', 'inline folder create/select');
+  const createdFolder = $('[name=folder]').value;
+  await save();
+  assert.equal(w.testState.lib.sources[0].folder,createdFolder);
+  assert.ok(w.testState.lib.folders.some(f=>f.id===createdFolder && f.name==='Inspector folder'));
+  assert.equal($('.control-popover'),null);
+  console.log('PASS: inspector media metadata, inline name key isolation, inline folder creation and persisted selection');
   // JSDOM cannot emulate native WebKit control painting; verify that controls
   // explicitly opt out of it and that the document declares a light base scheme.
   const style = d.createElement("style");

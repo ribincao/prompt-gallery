@@ -1171,3 +1171,61 @@ button.primary { background: var(--button-blue); border-color: var(--button-blue
 .result-choice { top: auto; bottom: 52px; z-index: 5; }
 
 #toggle-suggestions { display: block; margin: 8px 0; }
+
+/* Shared inspector controls. Popovers stay within the dialog, below its header. */
+#modal.inspector-dialog { width: min(920px, calc(100vw - 32px)); max-width: none; }
+.item-inspector { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 24px; }
+.inspector-media, .inspector-details { min-width: 0; }
+.inspector-details { display: flex; flex-direction: column; gap: 12px; }
+.inspector-preview { height: min(480px, calc(100dvh - 180px)); min-height: 260px; border-radius: 12px; overflow: hidden; background: var(--media-backdrop); display: flex; align-items: center; justify-content: center; }
+#modal .inspector-preview .source-preview { width: 100%; height: 100%; max-height: none; object-fit: contain; margin: 0; border-radius: 0; }
+#modal .inspector-preview .audio-preview { display: flex; flex-direction: column; justify-content: center; gap: 16px; padding: 20px; }
+.inspector-preview .audio-preview > img, .inspector-preview .audio-placeholder { width: 100%; flex: 1; min-height: 0; object-fit: contain; }
+.inspector-preview audio { width: 100%; flex: none; }
+.media-actions { display: flex; gap: 8px; margin-top: 12px; }
+.media-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.media-actions .trash-icon { margin-left: auto; }
+.inline-name { font-size: 24px; font-weight: 600; width: 100%; padding: 4px 0; border-color: transparent; background: transparent; }
+.inline-name:hover { border-color: var(--line); }
+.inline-name:focus { padding-inline: 8px; background: var(--surface); }
+.media-metadata { font-size: 11px; overflow-wrap: anywhere; margin: -6px 0 0; }
+.folder-trigger { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; }
+.folder-trigger > span:nth-child(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.token-field { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px; }
+.tokens { display: contents; }
+.tag-token { display: inline-flex; gap: 5px; align-items: center; max-width: 100%; background: var(--soft); border-radius: 5px; padding: 2px 4px 2px 7px; }
+.tag-token > span:nth-child(2) { overflow-wrap: anywhere; min-width: 0; }
+.tag-token button { padding: 0 3px; border: 0; background: transparent; color: var(--muted); }
+.token-input { flex: 1; min-width: 90px; width: 100px; border: 0; padding: 3px; background: transparent; }
+.control-popover { position: fixed; z-index: 5; overflow: auto; padding: 5px; border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 9px; box-shadow: var(--shadow); scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.control-popover::-webkit-scrollbar { width: 5px; height: 5px; }
+.control-popover::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+.control-popover button { display: flex; align-items: center; gap: 5px; width: 100%; text-align: left; border: 0; background: transparent; overflow-wrap: anywhere; }
+.control-popover button:hover, .control-popover .highlighted { background: var(--soft); }
+.control-popover .menu-separated { border-top: 1px solid var(--line); border-radius: 0; margin-top: 4px; }
+.menu-check { width: 16px; flex: none; }
+.control-popover input { width: 100%; margin-top: 4px; }
+.control-popover mark { background: var(--soft); color: var(--accent-label); font-weight: 600; }
+.control-popover .option-label { white-space: pre; }
+.control-popover mark { padding: 0; border-radius: 2px; }
+.control-popover button:focus-visible, .token-field:focus-within, .folder-trigger:focus-visible, .inline-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#modal .inspector-details .source-uses { margin: 0; }
+.inspector-details h3 { font-size: 12px; margin: 0 0 8px; }
+.inspector-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.inspector-thumb { width: 48px; height: 48px; padding: 0; overflow: hidden; position: relative; }
+.inspector-thumb img, .inspector-thumb .thumbnail-missing { width: 100%; height: 100%; object-fit: cover; }
+.inspector-thumb .video-badge { font-size: 8px; padding: 2px; }
+.result-properties { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 10px; }
+.inspector-sources .source-picker { margin: 0; padding: 0; border: 0; }
+.inspector-sources .source-picker p { font-size: 11px; margin: 4px 0 8px; }
+#modal .inspector-sources .source-picker-grid { grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); max-height: 150px; gap: 6px; }
+.inspector-sources .source-option small { display: none; }
+.inspector-sources .source-option-name { font-size: 10px; }
+.inspector-details textarea[name=note] { min-height: 48px; max-height: 126px; resize: none; }
+@media (max-width: 850px) { .item-inspector { gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .media-actions { gap: 4px; } .media-actions button { padding: 6px; } }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* Short forms leave space for their in-app menu instead of a clipped native dropdown. */
+#modal:has(.folder-control):not(.inspector-dialog), #modal:has(.token-control):not(.inspector-dialog) { min-height: min(400px, calc(100dvh - 32px)); }
+
+:root { --media-backdrop: color-mix(in srgb, var(--text) 82%, var(--bg)); }
+@media (prefers-color-scheme: dark) { :root { --media-backdrop: color-mix(in srgb, var(--bg) 90%, var(--text)); } }

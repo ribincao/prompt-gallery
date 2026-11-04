@@ -16,7 +16,7 @@ code paths unless asked.
 
 | Path | What |
 |---|---|
-| `src/` | The UI: plain HTML/CSS/JS, no framework, no build step, no network requests. `app.js` (screens, dialogs, tag manager), `prompt-cards.js` (stacked cards, drop on card), `result-tools.js` (source picker, multi-select, display names) |
+| `src/` | The UI: plain HTML/CSS/JS, no framework, no build step, no network requests. `app.js` (screens, dialogs, tag manager), `prompt-cards.js` (stacked cards, drop on card), `result-tools.js` (source picker, multi-select, display names), `controls.js` (shared folder popovers, tag tokens, inline names) |
 | `src-tauri/src/library.rs` | **The only code that writes the library.** IDs, atomic writes, imports, thumbnails, Trash, tag lock and tag operations, display names. Tests in `library/tests.rs` |
 | `src-tauri/src/commands.rs` | Tauri commands the UI calls (thin wrappers over `library.rs`), app config |
 | `src-tauri/src/asset.rs` | Serves images and bounded video byte ranges (GET/HEAD), only from inside the current library |
@@ -122,3 +122,8 @@ source), and a Windows port (see README).
   CLI and verifies a Range slice through the real handler. It disables native posters by default.
 - The toolbar owns search; the sidebar label is Photos (internal `sources` IDs are unchanged).
   Main content is the page scroll container. Keep the title-bar traffic-light region clear.
+
+- Source and result edit dialogs share a two-column inspector. Folder and tag controls in
+  `controls.js` use hidden form values and dispose popovers when dialogs close or change.
+  Keep popovers below header actions; Escape first closes a popover or reverts a title edit.
+  Needs and style tags remain separate token fields; bulk source-photo selection is unchanged.

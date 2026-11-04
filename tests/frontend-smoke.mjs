@@ -9,7 +9,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright")
 const root = resolve(import.meta.dirname, "..");
 const server = createServer(async (req, res) => {
   const file = req.url === "/" ? "/index.html" : req.url;
-  if (!["/index.html", "/styles.css", "/app.js", "/prompt-cards.js", "/result-tools.js"].includes(file)) {
+  if (!["/index.html", "/styles.css", "/app.js", "/prompt-cards.js", "/result-tools.js", "/controls.js"].includes(file)) {
     res.writeHead(404).end();
     return;
   }
@@ -35,7 +35,8 @@ try {
   await page.locator("#nav-sources").click();
   await page.getByRole("button", { name: "+ Add photos" }).click();
   await page.getByRole("heading", { name: "Tag your photo", exact: true }).waitFor();
-  await page.getByLabel("single", { exact: true }).check();
+  await page.locator(".token-input").first().fill("single");
+  await page.locator(".token-input").first().press("Enter");
   await page.getByRole("button", { name: "Save tags", exact: true }).click();
   if (await page.locator(".folder-card").count()) await page.locator(".folder-card > button").first().click();
   await page.locator(".source-card").click();
@@ -51,13 +52,14 @@ try {
     1,
   );
   await page.getByLabel("Note", { exact: true }).fill("A reference photo");
-  await page.getByRole("button", { name: "Save photo details" }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await page.locator("#nav-prompts").click();
   await page.getByRole("button", { name: "+ New" }).click();
   await page.getByLabel("Title", { exact: true }).fill("Portrait <test>");
   const text = "  Turn the photo into a gentle illustrated portrait.\nKeep the person recognizable.\n";
   await page.getByLabel("Prompt text", { exact: true }).fill(text);
-  await page.getByLabel("single", { exact: true }).check();
+  await page.locator(".token-input").first().fill("single");
+  await page.locator(".token-input").first().press("Enter");
   await page.getByRole("button", { name: "Create prompt", exact: true }).click();
   await page.getByRole("heading", { name: "Portrait <test>", exact: true }).waitFor();
   assert.equal(await page.locator(".source-mini").count(), 1);
