@@ -122,21 +122,44 @@ One window, native macOS title bar, follows system light/dark mode.
 **Sidebar**: two sections, **Prompts** and **Source photos**; a search box; tag filter
 chips; a "Favorites" filter.
 
-**Prompts view**: a grid of prompt cards. Each card shows the newest result image (or a
-text placeholder), the title, and its `needs` tags. Search matches title, prompt text,
-tags and notes.
+**Prompts view**: a grid of prompt cards showing the title and `needs` tags. A card with
+no results keeps a text placeholder; one result shows a single flat thumbnail. With two
+or more results, show a small photo stack of the newest three results at most: newest on
+top, with up to two older thumbnails peeking out behind, slightly offset and rotated
+(e.g. -4° and +3°). A corner badge shows the total result count. On hover or keyboard
+focus, the stack fans out slightly using CSS transform transitions; reduced-motion
+preferences keep it still. Load thumbnails from `.thumbs/`, never full-resolution
+originals in these cards, and render at most three preview images per card.
+
+Each prompt card is a drop target for image files. Hit-test Tauri's drag-drop cursor
+position against the card (converting physical coordinates to CSS pixels), highlight it
+while hovered during a drag, and add the dropped files to that prompt. A small **+**
+button appears on hover or keyboard focus and opens the image picker for that prompt.
+**Cmd+V** pastes a clipboard image into the hovered card, or the focused/selected card
+when no card is hovered; a card gains selection through focus or pointer interaction.
+Clicking the main card still opens prompt detail. All three import paths open the same
+**Add result** form as prompt detail, asking for source photos used and prefilling a
+chatgpt.com chat URL from the clipboard. Adding from the grid keeps the user in the grid.
+Search matches title, prompt text, tags and notes. The data model is unchanged.
 
 **Prompt detail** (opens when a card is clicked):
 - Title and the full prompt text, with a big **Copy prompt** button (shows "Copied").
 - Edit button: edit title, text, needs, tags, source URL, notes.
 - **Suggested source photos**: a strip of source photos whose tags intersect `needs`,
-  newest first. Each has "Reveal in Finder" and can be dragged out (see Import/export).
+  newest first. Needs match **any** selected tag. If none match and the library has sources,
+  offer **Show all source photos** in place. Photos can be dragged out; **Reveal in Finder**
+  is available in the right-click menu, without a repeated button or hover tooltip.
 - **Results**: a grid of this prompt's results. Click opens a lightbox (arrow keys to step
   through, Esc to close) showing the image, its source photo(s), date, note and an
-  "Open chat" link that opens `chatUrl` in the default browser.
+  "Open chat" link that opens `chatUrl` in the default browser. Linked source photos appear
+  as clickable thumbnails that open their source detail. **Select**, Cmd-click, and
+  Shift-click enable multi-selection; **Set source photos…** replaces the source links on
+  every selected result while preserving chat URL, model, note, and favorite status.
 - **Add result**: paste (Cmd+V), drop files, or pick files. After adding, a small form
   asks for the source photo(s) used (pre-filled with the last one picked from the strip)
-  and the chat URL (pre-filled from the clipboard if it's a chatgpt.com URL).
+  and the chat URL (pre-filled from the clipboard if it's a chatgpt.com URL). Add/Edit result
+  and batch linking share a grid of thumbnail toggles (accent ring and check when selected),
+  showing photos matching any prompt needs-tag first, then the remaining photos.
 
 **New prompt** (Cmd+N): title, prompt text, needs, tags, source URL. Saving creates the
 folder. Pasting a long block of text into the empty grid also opens this form with the
@@ -197,8 +220,11 @@ crate is needed. Grids show thumbnails; the lightbox shows the original.
   `app.js` (and more modules if it grows).
 - `src-tauri/`: Rust backend that owns all file I/O through custom commands. The frontend
   never touches the filesystem directly.
-- Images are shown with Tauri's asset protocol (`convertFileSrc`), with the scope set at
-  runtime to the current library folder only.
+- Images are shown with Tauri's asset protocol (`convertFileSrc`). A guarded handler for
+  the `asset` URI scheme checks the active canonical library root on every request and
+  rejects external paths, symlinks, and non-images. This replaces the stock additive
+  asset-scope responder so first choice and library switches require no process restart.
+  Automatic scope grants from file drops cannot bypass the current-root check.
 
 ### Backend commands (Rust)
 

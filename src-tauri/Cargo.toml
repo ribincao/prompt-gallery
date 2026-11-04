@@ -1,0 +1,31 @@
+[package]
+name = "prompt-gallery"
+version = "0.1.0"
+edition = "2021"
+description = "A local library of source photos, image prompts, and generated results."
+
+[lib]
+name = "prompt_gallery_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-drag = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+trash = "5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
