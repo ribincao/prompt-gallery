@@ -1,0 +1,35 @@
+{
+  "name": "prompt-gallery",
+  "version": "0.1.0",
+  "description": "Install Prompt Gallery on macOS and safely save generated images, prompts, and reference photos.",
+  "author": {
+    "name": "ribincao",
+    "url": "https://github.com/ribincao"
+  },
+  "homepage": "https://github.com/ribincao/prompt-gallery",
+  "license": "MIT",
+  "keywords": [
+    "prompt-gallery",
+    "image-generation",
+    "image-library",
+    "macos"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Prompt Gallery",
+    "shortDescription": "Save generated images and prompts on macOS",
+    "longDescription": "Install Prompt Gallery and its pgallery CLI on macOS, then save exact image prompts, generated results, and reference photos safely into a local library.",
+    "developerName": "ribincao",
+    "category": "Creativity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/ribincao/prompt-gallery",
+    "defaultPrompt": [
+      "Install Prompt Gallery",
+      "Save these images to my Prompt Gallery",
+      "Add this prompt and its reference photos to Prompt Gallery"
+    ]
+  }
+}

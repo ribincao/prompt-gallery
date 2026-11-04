@@ -76,6 +76,7 @@ async function task(fn) {
     report(e);
   } finally {
     busy = false;
+    flushLibraryRefresh();
     $("#busy").hidden = true;
   }
 }
@@ -162,10 +163,36 @@ function renderPrompt() {
   const suggestions = showAllSourcesFor === p.id ? library.sources : matches;
   main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.needs.length ? p.needs : ["text-only"])}${badges(p.tags)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<pre class="prompt-text">${esc(p.text)}</pre>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}<section><div class="section-header"><h2>Suggested source photos</h2><small>${suggestions.length} ${showAllSourcesFor === p.id ? "available" : "matching"} ${suggestions.length === 1 ? "photo" : "photos"}</small></div>${p.needs.length ? (suggestions.length ? `<div class="strip">${suggestions.map((s) => sourceCard(s, true)).join("")}</div><small>Click to preview · Drag to ChatGPT · Copy image with ⌘C</small>` : `<p class="muted">No matching photos yet. Add a source photo with one of this prompt’s needs tags.</p>${library.sources.length ? button("show-all-sources", "Show all source photos", "link-button") : ""}`) : '<p class="muted">This is a text-only prompt. No source photo needed.</p>'}</section><section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
 }
-async function refresh() {
-  library = await invoke("load_library");
-  render();
+let pendingLibraryRefresh = false;
+let refreshInFlight = null;
+async function refresh(external = false) {
+  if (refreshInFlight) {
+    await refreshInFlight;
+    return refresh(external);
+  }
+  refreshInFlight = (async () => {
+    const next = await invoke("load_library");
+    if (external && (busy || modal.open || lightbox.open)) {
+      pendingLibraryRefresh = true;
+      return;
+    }
+    // An app save and its watcher event may both load; only changed data redraws.
+    if (external && JSON.stringify(next) === JSON.stringify(library)) return;
+    const top = main.scrollTop, left = main.scrollLeft;
+    library = next;
+    render();
+    main.scrollTop = top;
+    main.scrollLeft = left;
+  })();
+  try { await refreshInFlight; } finally { refreshInFlight = null; }
 }
+async function flushLibraryRefresh() {
+  if (!pendingLibraryRefresh || busy || modal.open || lightbox.open || !library) return;
+  pendingLibraryRefresh = false;
+  try { await refresh(true); } catch (error) { report(error); }
+}
+modal.addEventListener("close", () => setTimeout(flushLibraryRefresh, 0));
+lightbox.addEventListener("close", () => setTimeout(flushLibraryRefresh, 0));
 async function chooseLibrary() {
   if (busy) return;
   const path = await invoke("pick_library_folder");
@@ -605,7 +632,7 @@ $("#manage-tags").addEventListener("click", () => {
   if (!library) return;
   showModal(
     "Tag vocabulary",
-    `${field("Tags, separated by commas", "tags", library.tags.join(", "), { area: true, rows: 4, hint: "Shared by source photos and prompt needs. Removing a vocabulary tag does not remove it from existing items." })}${footer()}`,
+    `${field("Tags, separated by commas", "tags", library.tags.join(", "), { area: true, rows: 4, hint: "Shared by source photos and prompt needs. New tags are merged into the vocabulary; existing tags are retained." })}${footer()}`,
     async (form) => {
       await invoke("set_tags", { tags: split(form.elements.tags.value) });
       closeModal();
@@ -728,6 +755,12 @@ document.addEventListener("dragstart", (e) => {
   if (e.target.closest(".source-card")) e.preventDefault();
 });
 async function start() {
+  await listen("library-changed", (event) => {
+    if (library && event.payload === library.root) {
+      pendingLibraryRefresh = true;
+      flushLibraryRefresh();
+    }
+  });
   const dragHover = (event) => {
     if (dragging || busy || modal.open || lightbox.open) return;
     main.classList.add("drop-active");

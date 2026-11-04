@@ -1,0 +1,7 @@
+{
+  "name": "prompt-gallery",
+  "owner": { "name": "ribincao" },
+  "plugins": [
+    { "name": "prompt-gallery", "source": "./" }
+  ]
+}

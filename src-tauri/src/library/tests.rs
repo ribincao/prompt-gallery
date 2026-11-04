@@ -237,3 +237,57 @@ fn dotfiles_and_hidden_directories_are_ignored_in_every_scan() {
     assert_eq!(lib.prompts[0].results[0].meta.id, result);
     assert!(root.join("prompts/.DS_Store").exists());
 }
+
+#[test]
+fn stale_tag_lock_is_replaced() {
+    use std::time::{Duration, SystemTime};
+    let dir = tempdir().unwrap();
+    let root = open_library(dir.path(), false).unwrap();
+    let path = root.join(".prompt-gallery.lock");
+    fs::write(&path, "abandoned").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(SystemTime::now() - Duration::from_secs(31)))
+        .unwrap();
+    set_tags(&root, vec!["new".into()]).unwrap();
+    assert!(marker(&root).unwrap().tags.contains(&"new".into()));
+    assert!(!path.exists());
+}
+#[test]
+fn simultaneous_tag_merges_keep_both() {
+    let dir = tempdir().unwrap();
+    let root = open_library(dir.path(), false).unwrap();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let threads: Vec<_> = ["alpha", "beta"]
+        .into_iter()
+        .map(|tag| {
+            let root = root.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                set_tags(&root, vec![tag.into()]).unwrap();
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    let tags = marker(&root).unwrap().tags;
+    assert!(tags.contains(&"alpha".into()) && tags.contains(&"beta".into()));
+    assert!(!root.join(".prompt-gallery.lock").exists());
+}
+
+#[test]
+fn tag_lock_released_on_error() {
+    let dir = tempdir().unwrap();
+    let root = open_library(dir.path(), false).unwrap();
+    fs::write(root.join("library.json"), "corrupt").unwrap();
+    assert!(set_tags(&root, vec!["tag".into()]).is_err());
+    assert!(!root.join(".prompt-gallery.lock").exists());
+    assert_eq!(
+        fs::read_to_string(root.join("library.json")).unwrap(),
+        "corrupt"
+    );
+}

@@ -128,6 +128,34 @@ make clean                   # remove build output
 | ← → | Step through results in the full-size view |
 | Esc | Close a dialog or the full-size view |
 
+## Use it from an AI agent
+
+Prompt Gallery and `pgallery` are macOS-only. Install the Claude Code plugin:
+
+```text
+/plugin marketplace add ribincao/prompt-gallery
+/plugin install prompt-gallery@prompt-gallery
+```
+
+Install the Codex plugin:
+
+```sh
+codex plugin marketplace add ribincao/prompt-gallery
+codex plugin add prompt-gallery@prompt-gallery
+```
+
+Both plugins use the same skill folder. As a manual fallback, copy `skills/prompt-gallery` into `~/.claude/skills/` or `~/.agents/skills/`.
+The skill offers to save images after generation and uses the shared storage CLI:
+
+```sh
+make install-cli
+pgallery add --prompt-file /tmp/prompt.txt --result /tmp/generated.png --model "image-tool" --tags portrait --json
+```
+
+Open the app once to choose a library, or pass `--library <folder>`. An empty existing
+folder is initialized on the first add. The open app refreshes automatically.
+See [agent integration](docs/agent-integration.md) for the CLI reference and config paths.
+
 ## Windows
 
 **Prompt Gallery runs on macOS only for now.** It's built on [Tauri](https://tauri.app), which

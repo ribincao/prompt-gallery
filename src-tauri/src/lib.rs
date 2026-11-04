@@ -1,13 +1,16 @@
 use tauri::Manager;
 mod asset;
+pub mod cli;
 mod commands;
-mod library;
+pub mod library;
 mod native;
+mod watcher;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(commands::LibraryState::default())
+        .manage(watcher::WatchState::default())
         .manage(asset::AssetPolicy::default())
         // Registering "asset" replaces Tauri's built-in asset responder. Automatic
         // dialog/drop scope grants cannot bypass our current-root authorization.

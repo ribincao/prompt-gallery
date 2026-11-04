@@ -51,6 +51,7 @@ pub fn set_library(
     }
     let mut current = state.0.lock().map_err(|e| e.to_string())?;
     let root = library::open_library(&chosen, confirm_nonempty.unwrap_or(false))?;
+    let watcher = crate::watcher::start(app.clone(), root.clone())?;
     let config = Config {
         library_path: Some(root.to_string_lossy().into()),
     };
@@ -64,6 +65,10 @@ pub fn set_library(
     // permanent scope deny rules are needed, including on first choice and A → B → A.
     *active_root = Some(root.clone());
     *current = Some(root);
+    *app.state::<crate::watcher::WatchState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())? = Some(watcher);
     Ok(())
 }
 #[tauri::command]

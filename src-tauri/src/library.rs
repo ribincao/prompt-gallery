@@ -435,20 +435,20 @@ pub fn load_library(root: &Path) -> Outcome<Library> {
     Ok(lib)
 }
 pub fn set_tags(root: &Path, tags: Vec<String>) -> Outcome<()> {
+    let _lock = TagLock::acquire(root)?;
     let mut m = marker(root)?;
-    m.tags = tags
-        .into_iter()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+    m.tags.extend(
+        tags.into_iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>(),
+    );
     m.tags.sort();
     m.tags.dedup();
     write_json(&safe(root, "library.json")?, &m)
 }
 fn add_tags(root: &Path, tags: &[String]) -> Outcome<()> {
-    let mut all = marker(root)?.tags;
-    all.extend_from_slice(tags);
-    set_tags(root, all)
+    set_tags(root, tags.to_vec())
 }
 fn copy_image(
     root: &Path,
@@ -634,3 +634,65 @@ pub fn trash_item(root: &Path, kind: &str, id: &str, prompt_id: Option<&str>) ->
 
 #[cfg(test)]
 mod tests;
+
+// A short-lived cross-process lease for vocabulary read/merge/write only.
+struct TagLock {
+    path: PathBuf,
+    token: String,
+}
+impl TagLock {
+    fn acquire(root: &Path) -> Outcome<Self> {
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        loop {
+            let path = safe(root, ".prompt-gallery.lock")?;
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut file) => {
+                    let lock = Self {
+                        path,
+                        token: format!("{:016x}", rand::random::<u64>()),
+                    };
+                    if let Err(error) = file.write_all(lock.token.as_bytes()) {
+                        drop(file);
+                        let _ = fs::remove_file(&lock.path);
+                        return Err(err(error));
+                    }
+                    return Ok(lock);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let stale = fs::symlink_metadata(&path)
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.elapsed().ok())
+                        .is_some_and(|age| age > Duration::from_secs(30));
+                    if stale {
+                        match fs::remove_file(&path) {
+                            Ok(()) => continue,
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                            Err(e) => return Err(err(e)),
+                        }
+                    }
+                    if start.elapsed() >= Duration::from_secs(5) {
+                        return Err(
+                            "Timed out waiting for .prompt-gallery.lock; retry shortly".into()
+                        );
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Err(e) => return Err(err(e)),
+            }
+        }
+    }
+}
+impl Drop for TagLock {
+    fn drop(&mut self) {
+        // Never remove a successor's lease if ours expired during a stalled process.
+        if fs::read_to_string(&self.path).ok().as_deref() == Some(&self.token) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}

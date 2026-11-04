@@ -16,6 +16,7 @@ w.HTMLDialogElement.prototype.showModal = function () {
 };
 w.HTMLDialogElement.prototype.close = function () {
   this.open = false;
+  this.dispatchEvent(new w.Event("close"));
 };
 w.eval(`(${installMockBridge.toString()})();`);
 // Load the UI modules into the same DOM realm before the app entry point.
@@ -360,6 +361,40 @@ try {
   await act("show-all-sources");
   assert.equal(d.querySelectorAll(".source-mini").length, 3);
   assert.equal(d.querySelectorAll(".source-mini [data-action=reveal]").length, 0);
+
+  // Live refresh preserves the detail view/scroll and avoids self-event redraws.
+  const emitChange = () => w.testState.listeners["library-changed"]({ payload: w.testState.lib.root });
+  $("#main").scrollTop = 123;
+  first.title = "Changed by CLI";
+  emitChange();
+  await wait(() => $("#main h1")?.textContent === "Changed by CLI", "external refresh");
+  assert.equal($("#main").scrollTop, 123);
+  const sameHeader = $("#main h1");
+  emitChange();
+  await tick();
+  assert.equal($("#main h1"), sameHeader, "unchanged watcher snapshot must not redraw");
+  await act("edit-prompt");
+  input("title", "Unsaved draft");
+  first.title = "Deferred external change";
+  emitChange();
+  await tick();
+  assert.equal($("#dialog-form [name=title]").value, "Unsaved draft");
+  assert.equal($("#main h1").textContent, "Changed by CLI");
+  await act("close-modal");
+  await wait(() => $("#main h1")?.textContent === "Deferred external change", "deferred dialog refresh");
+  await click(".result-card");
+  first.title = "Deferred lightbox change";
+  emitChange();
+  await tick();
+  assert.equal($("#main h1").textContent, "Deferred external change");
+  await act("close-lightbox");
+  await wait(() => $("#main h1")?.textContent === "Deferred lightbox change", "deferred lightbox refresh");
+  const oldHeader = $("#main h1");
+  first.title = "Wrong library event";
+  w.testState.listeners["library-changed"]({ payload: "/different/library" });
+  await tick();
+  assert.equal($("#main h1"), oldHeader);
+  console.log("PASS: live refresh, unchanged snapshot, scroll/detail preservation, dialog/lightbox deferral, stale-library events");
   console.log(
     "PASS: first run, source import/tag/edit/copy, exact prompt text, safe HTML, matching photos, result defaults, drop, lightbox arrows, chat, favorites/search, context menu, Trash, missing references, image/text paste, Cmd+F and Cmd+N, 0/1/2/5-result cards, thumbnail cap/order, Retina drop targeting/highlights, card picker, hovered/focused paste, stale-target rejection, matching-first thumbnail toggles, lightbox source previews, bulk link/clear preserving other metadata, Cmd/Shift selection, any-tag matching, fallback strip, and tooltip/reveal cleanup.",
   );
