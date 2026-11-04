@@ -73,7 +73,7 @@ Sortable by date, readable in Finder, collision-safe for one person.
 
 `sources/<id>.json`
 ```json
-{ "id": "…", "file": "<id>.jpg", "originalName": "IMG_1234.jpg",
+{ "id": "…", "file": "<id>.jpg", "originalName": "IMG_1234.jpg", "name": "Kujira in a bucket",
   "tags": ["single"], "note": "", "createdAt": "2026-11-04T21:30:15+08:00" }
 ```
 
@@ -87,11 +87,17 @@ Sortable by date, readable in Finder, collision-safe for one person.
 
 `prompts/<id>/results/<id>.json`
 ```json
-{ "id": "…", "file": "<id>.png", "sourcePhotos": ["<source id>"],
+{ "id": "…", "file": "<id>.png", "name": "Watercolor Kujira", "sourcePhotos": ["<source id>"],
   "chatUrl": "https://chatgpt.com/c/…", "model": "ChatGPT", "note": "",
   "favorite": false, "createdAt": "…" }
 ```
 
+- Source and result `name` is optional. Trim whitespace; reject more than 200 Unicode
+  characters. Empty names clear the field (omitted from JSON). Existing records without
+  `name` load without rewriting. Display a non-empty custom name, otherwise the source
+  `originalName` or the result date. `originalName`, IDs, filenames, thumbnails and links
+  never change when renaming. Search includes custom names and source original filenames;
+  result names also find their containing prompt.
 - `needs` and source `tags` share one vocabulary. Built-in tags: `single`, `couple`,
   `group`, `pet`, `landscape`, `character-sheet`, `object`. Users can add, remove, rename or merge their own tags; the
   full list is stored in `library.json` under `tags`.
@@ -166,7 +172,7 @@ folder. Pasting a long block of text into the empty grid also opens this form wi
 text filled in.
 
 **Source photos view**: a grid of thumbnails, filterable by tag. Add via paste, drop or
-picker; newly added photos open a tag picker straight away. Click a photo to edit its tags
+picker; newly added photos open a tag picker straight away. Click a photo to edit its name, tags
 and note, see which results used it, reveal it in Finder, or delete it.
 
 **Empty and first-run states**: first launch shows "Choose a library folder" with the
@@ -255,7 +261,9 @@ visible below the title, outside the form's scroll area. Enter in single-line in
 Cmd+Enter submit; Esc cancels. The prompt textarea starts at four rows and grows to about
 12, then scrolls internally. Needs and their compact add field share a row; style tags and
 source URL share a row; notes use two rows. Source previews and result-photo pickers are
-shorter. At small window sizes only the body scrolls, leaving actions visible; the tag
+shorter. Source and result edit forms begin with a Name field prefilled with the display
+name. A source with a custom name shows its original filename underneath. Saving an
+untouched fallback does not store it as a custom name. At small window sizes only the body scrolls, leaving actions visible; the tag
 manager scrolls its list. Light and dark mode retain the system-blue Photos-neutral style.
 The layout target is a new prompt with about 15 tags fitting at 1200×800; the browser smoke
 test checks that target and header visibility at 800×560.
@@ -269,7 +277,7 @@ test checks that target and header visibility at 800×560.
 | `load_library` | Scan and return all sources, prompts and results |
 | `import_sources(paths, tags)` | Copy files into `sources/`, write JSON, make thumbnails |
 | `import_source_bytes(bytes, tags)` | Same, from pasted image data |
-| `update_source(id, tags, note)` | Edit source metadata |
+| `update_source(id, tags, note, name)` | Edit source metadata |
 | `create_prompt(meta, text)` / `update_prompt(id, meta, text)` | Write prompt files |
 | `add_results(promptId, paths \| bytes, sourcePhotos, chatUrl, note)` | Copy results in |
 | `update_result(promptId, id, …)` | Edit result metadata |

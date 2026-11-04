@@ -117,7 +117,10 @@ make clean                   # remove build output
 1. **Choose a library folder** on first launch. An empty folder (or a new one) works best.
    Switch later from **Library** at the bottom of the sidebar.
 2. **Add source photos.** Go to *Source photos* and drop, paste or pick images, then tag them
-   by what they show. A photo can have several tags.
+   by what they show. A photo can have several tags. Open a photo and edit **Name** to rename
+   its display label; results have the same field under **Edit**. Names are trimmed and limited
+   to 200 characters. Clear the field to restore the original filename (sources) or date
+   (results). Renaming changes metadata only; files and links keep their IDs.
 3. **Create a prompt** with **+ New prompt** (⌘N). Paste the text, give it a title, and choose
    which kinds of photo it needs. Pasting a long block of text into an empty prompt grid starts
    a new prompt for you.

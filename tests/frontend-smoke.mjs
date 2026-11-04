@@ -38,6 +38,12 @@ try {
   await page.getByLabel("single", { exact: true }).check();
   await page.getByRole("button", { name: "Save tags", exact: true }).click();
   await page.locator(".source-card").click();
+  await page.getByLabel("Name", { exact: true }).fill("Kujira in a bucket");
+  const formFits = () => {
+    const form = document.querySelector("#dialog-form");
+    return form.scrollHeight <= form.clientHeight + 1;
+  };
+  assert.ok(await page.evaluate(formFits), "source edit should fit without scrolling");
   await page.getByRole("button", { name: "Copy image", exact: true }).click();
   assert.equal(
     (await page.evaluate(() => testState.calls.filter((c) => c.cmd === "copy_image_to_clipboard"))).length,
@@ -57,12 +63,18 @@ try {
   await page.getByRole("button", { name: "Copy prompt", exact: true }).click();
   assert.equal(await page.evaluate(() => testState.copied), text);
   await page.locator(".source-card").click();
-  await page.getByRole("button", { name: "Close dialog" }).click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("button", { name: "+ Add result" }).click();
   assert.equal(await page.getByLabel("Chat URL", { exact: true }).inputValue(), "https://chatgpt.com/c/test");
-  assert.equal(await page.getByLabel("Original.png", { exact: true }).isChecked(), true);
+  assert.equal(await page.getByLabel("Kujira in a bucket", { exact: true }).isChecked(), true);
   await page.getByRole("button", { name: "Add results", exact: true }).click();
   await page.locator("[data-action=result]").click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Watercolor Kujira");
+  assert.ok(await page.evaluate(formFits), "result edit should fit without scrolling");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator("#modal").waitFor({state: "hidden"});
+  assert.match(await page.locator("#lightbox-content").innerText(), /Watercolor Kujira/);
   await page.getByRole("button", { name: "Open chat ↗" }).click();
   await page.keyboard.press("Escape");
   await page.evaluate(() => testState.listeners["tauri://drag-drop"]({ payload: { paths: ["/tmp/second.jpg"] } }));

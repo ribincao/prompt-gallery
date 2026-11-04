@@ -159,8 +159,9 @@ pub async fn update_source(
     id: String,
     tags: Vec<String>,
     note: String,
+    name: Option<String>,
 ) -> Outcome<()> {
-    with_root(&state, |r| library::update_source(r, &id, tags, note))
+    with_root(&state, |r| library::update_source(r, &id, tags, note, name))
 }
 #[tauri::command]
 pub async fn create_prompt(
@@ -191,6 +192,7 @@ pub async fn add_results(
 ) -> Outcome<Vec<String>> {
     with_root(&state, |r| {
         let fields = ResultInput {
+            name: None,
             source_photos,
             chat_url,
             note,

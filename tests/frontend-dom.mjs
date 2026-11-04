@@ -68,9 +68,28 @@ try {
   assert.equal(w.testState.lib.sources[0].tags[0], "single");
   await act("source");
   await act("copy-image");
+  assert.equal($("[name=name]").value, "Original.png");
+  input("name", "  Kujira <bucket>  ");
   input("note", "A reference photo");
   await save();
   assert.equal(w.testState.lib.sources[0].note, "A reference photo");
+  assert.equal(w.testState.lib.sources[0].name, "Kujira <bucket>");
+  assert.equal($(".source-card h3").textContent, "Kujira <bucket>");
+  assert.equal($(".source-card").getAttribute("aria-label"), "Preview Kujira <bucket>");
+  for (const text of ["Kujira", "Original.png"]) {
+    $("#search").value = text;
+    $("#search").dispatchEvent(new w.Event("input"));
+    assert.ok($(".source-card"));
+  }
+  $("#search").value = "";
+  $("#search").dispatchEvent(new w.Event("input"));
+  await act("source");
+  assert.match($("#dialog-form").textContent, /Original file: Original.png/);
+  input("name", "🐈".repeat(201));
+  $("#dialog-form").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
+  await tick();
+  assert.match($("#modal-error").textContent, /200/);
+  await act("close-modal");
   assert.ok(w.testState.calls.some((c) => c.cmd === "copy_image_to_clipboard"));
   await click("#nav-prompts");
   await act("new-prompt");
@@ -81,6 +100,7 @@ try {
   await save();
   assert.equal($("#main h1").textContent, "Portrait <test>");
   assert.equal(d.querySelectorAll(".source-mini").length, 1);
+  assert.match($(".source-mini").textContent, /Kujira <bucket>/);
   assert.equal(d.querySelectorAll("test").length, 0);
   await act("copy-prompt");
   assert.equal(w.testState.copied, text);
@@ -89,12 +109,51 @@ try {
   await act("pick-results");
   assert.equal($("[name=chatUrl]").value, "https://chatgpt.com/c/test");
   assert.equal($("[name=sources]").checked, true);
+  assert.equal($(".source-option-name").textContent, "Kujira <bucket>");
   await save();
   assert.equal(w.testState.lib.prompts[0].results[0].sourcePhotos.length, 1);
   await act("result");
+  assert.match($(".linked-source").textContent, /Kujira <bucket>/);
+  await act("edit-result");
+  const dateFallback = $("[name=name]").value;
+  await save();
+  assert.equal(w.testState.lib.prompts[0].results[0].name, null);
+  await act("edit-result");
+  input("name", "  Watercolor <cat>  ");
+  await save();
+  assert.equal(w.testState.lib.prompts[0].results[0].name, "Watercolor <cat>");
+  assert.match($("#lightbox-content").textContent, /Watercolor <cat>/);
+  assert.equal($(".lightbox-image").alt, "Watercolor <cat>");
+  await act("close-lightbox");
+  assert.match($(".result-card").getAttribute("aria-label"), /Watercolor <cat>/);
+  assert.match($(".result-card").textContent, /Watercolor <cat>/);
+  await act("source");
+  assert.match($(".source-uses").textContent, /Watercolor <cat>/);
+  input("name", "   ");
+  await save();
+  assert.equal($(".source-card").getAttribute("aria-label"), "Preview Original.png");
+  await act("source");
+  assert.doesNotMatch($("#dialog-form").textContent, /Original file:/);
+  input("name", "Kujira <bucket>");
+  await save();
+  await act("back");
+  $("#search").value = "watercolor";
+  $("#search").dispatchEvent(new w.Event("input"));
+  assert.equal(d.querySelectorAll(".prompt-card").length, 1);
+  $("#search").value = "";
+  $("#search").dispatchEvent(new w.Event("input"));
+  await act("prompt");
+  await act("result");
+  await act("edit-result");
+  input("name", "  ");
+  await save();
+  assert.equal(w.testState.lib.prompts[0].results[0].name, null);
+  assert.match($("#lightbox-content").textContent, new RegExp(dateFallback));
   await act("open-url");
   assert.equal(w.testState.calls.at(-1).cmd, "open_chat");
   await act("close-lightbox");
+  await act("source");
+  await act("close-modal");
   w.testState.listeners["tauri://drag-drop"]({ payload: { paths: ["/tmp/second.jpg"] } });
   await wait(() => $("#modal").open, "drop");
   await save();
@@ -322,6 +381,7 @@ try {
       model: `Model ${i}`,
       note: `Keep note ${i}`,
       favorite: i % 2 === 0,
+      name: `Named result ${i}`,
     }),
   );
   const before = first.results.map((r) => ({ ...r, sourcePhotos: [...r.sourcePhotos] }));
@@ -339,7 +399,7 @@ try {
   for (let i = 0; i < first.results.length; i++) {
     const r = first.results[i];
     assert.deepEqual([...r.sourcePhotos], i < 2 ? [matchingGroup.id] : [...before[i].sourcePhotos]);
-    for (const key of ["chatUrl", "model", "note", "favorite"]) assert.equal(r[key], before[i][key]);
+    for (const key of ["chatUrl", "model", "note", "favorite", "name"]) assert.equal(r[key], before[i][key]);
   }
   await act("select-results");
   // Cmd-click starts selection; Shift-click adds the contiguous range, without opening a lightbox.

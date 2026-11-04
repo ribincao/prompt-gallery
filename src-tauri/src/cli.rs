@@ -57,6 +57,8 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
             "--tags",
             "--source-url",
             "--result",
+            "--result-name",
+            "--source-name",
             "--source",
             "--source-tags",
             "--chat-url",
@@ -69,7 +71,12 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
         if key != "--library" && !allowed.contains(&key.as_str()) {
             return Err(format!("Unknown option: {key}"));
         }
-        if values.len() > 1 && key != "--source" && key != "--result" {
+        if values.len() > 1
+            && key != "--source"
+            && key != "--result"
+            && key != "--result-name"
+            && key != "--source-name"
+        {
             return Err(format!("{key} may only appear once"));
         }
     }
@@ -96,6 +103,23 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
         }
         if many("--result").is_empty() {
             return Err("Provide at least one --result image".into());
+        }
+        for (flag, count) in [
+            ("--result-name", many("--result").len()),
+            (
+                "--source-name",
+                many("--source")
+                    .iter()
+                    .filter(|s| library::valid_id(s).is_err())
+                    .count(),
+            ),
+        ] {
+            if many(flag).len() > count {
+                return Err(format!("{flag} has more names than image paths"));
+            }
+            for name in many(flag) {
+                library::normalize_name(Some(name))?;
+            }
         }
         for p in many("--result").into_iter().chain(
             many("--source")
@@ -176,6 +200,7 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
     let text = text.unwrap();
     let mut source_ids = Vec::new();
     let mut sources = Vec::new();
+    let mut source_names = many("--source-name").into_iter();
     for input in many("--source") {
         let (id, reused) = if library::valid_id(&input).is_ok() {
             let source = lib
@@ -186,6 +211,7 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
             library::owned_file(&root, Path::new(&source.path))?;
             (input, true)
         } else {
+            let name = source_names.next();
             let bytes = fs::read(&input).map_err(|e| e.to_string())?;
             let found = lib.sources.iter().find(|s| {
                 let path = Path::new(&s.path);
@@ -202,6 +228,9 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
                     None,
                     tags("--source-tags"),
                 )?;
+                if name.is_some() {
+                    library::update_source(&root, &s.id, s.tags.clone(), s.note.clone(), name)?;
+                }
                 let id = s.id.clone();
                 // Refresh so repeated paths in this invocation also deduplicate.
                 lib = library::load_library(&root)?;
@@ -265,16 +294,17 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
         ..Default::default()
     };
     let mut results = Vec::new();
-    for p in many("--result") {
+    let result_names = many("--result-name");
+    for (index, p) in many("--result").into_iter().enumerate() {
+        let mut fields = fields.clone();
+        fields.name = result_names.get(index).cloned();
         results.push(
-            library::add_result(&root, &pid, Some(Path::new(&p)), None, fields.clone()).map_err(
-                |e| {
-                    format!(
-                        "{e}; {} results already saved to prompt {pid}",
-                        results.len()
-                    )
-                },
-            )?,
+            library::add_result(&root, &pid, Some(Path::new(&p)), None, fields).map_err(|e| {
+                format!(
+                    "{e}; {} results already saved to prompt {pid}",
+                    results.len()
+                )
+            })?,
         );
     }
     Ok(

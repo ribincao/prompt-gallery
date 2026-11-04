@@ -42,11 +42,19 @@ Options for `add`:
 | `--tags a,b` | Prompt tags |
 | `--source-url URL` | Original prompt URL; used only for new prompts |
 | `--result PATH` | Repeatable; at least one required |
+| `--result-name TEXT` | Repeatable; pairs in order with `--result` paths |
+| `--source-name TEXT` | Repeatable; pairs in order with path `--source`s, skipping IDs |
 | `--source PATH_OR_ID` | Repeatable input/reference images |
 | `--source-tags a,b` | Tags applied to newly imported sources |
 | `--chat-url URL` | Conversation URL on every result |
 | `--model TEXT` | Result model; default `agent` |
 | `--note TEXT` | Note on every result |
+
+Names are optional, trimmed, and limited to 200 Unicode characters. Empty names use the
+normal fallback. Fewer names leave remaining paths unnamed; use an empty string to skip
+a position. Excess names or overlong names fail before library initialization or writes.
+Reusing a source by bytes or ID never overwrites its name. Names only affect metadata,
+never file paths or links.
 
 The response contains `promptId`, `created` (false means matched), `resultIds`,
 `sourceIds` (unique), and `sources` (one `{id, reused}` per supplied source).

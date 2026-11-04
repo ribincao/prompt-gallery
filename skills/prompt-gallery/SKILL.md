@@ -30,6 +30,7 @@ On yes:
 - Check `pgallery where --json` and `pgallery tags --json`. If the CLI is missing, offer the install workflow above.
 - Write the exact model prompt to a temporary UTF-8 text file outside the library; use `--prompt-file` to preserve newlines and avoid shell interpolation.
 - Run `pgallery add --json --prompt-file <file> --result <image> ...`. Include every output image with a separate `--result`. Include each input/reference image with `--source`.
+- Pass a short descriptive `--result-name` for each output when obvious (for example, "Watercolor Kujira"). Names pair in order with `--result`; use an empty string to skip an unnamed position. Optionally use `--source-name` for path references (source IDs do not consume names). Names are trimmed, at most 200 characters, and never overwrite a reused source name.
 - Suggest `--needs` based on the input photo kind (single, couple, group, pet, landscape, character-sheet, object), and useful `--tags`. Use `--source-tags` for newly imported inputs. Use no needs for text-only generation.
 - Set `--model` to the actual tool/model used; include `--chat-url`, `--source-url`, or `--note` only when known and useful.
 - Quote arguments appropriately for the shell. Download tool outputs to temporary files outside the library if local paths are unavailable.

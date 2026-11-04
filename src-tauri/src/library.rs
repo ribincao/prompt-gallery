@@ -29,6 +29,8 @@ pub struct Source {
     pub id: String,
     pub file: String,
     pub original_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub tags: Vec<String>,
     pub note: String,
     pub created_at: String,
@@ -55,6 +57,8 @@ pub struct PromptMeta {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResultInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub source_photos: Vec<String>,
     pub chat_url: String,
     pub model: String,
@@ -680,6 +684,7 @@ pub fn import_source(
         id,
         file,
         original_name,
+        name: None,
         tags,
         note: String::new(),
         created_at: now(),
@@ -689,13 +694,27 @@ pub fn import_source(
     let _ = thumbnail(root, &s.id, &safe(root, format!("sources/{}", s.file))?);
     Ok(s)
 }
-pub fn update_source(root: &Path, id: &str, tags: Vec<String>, note: String) -> Outcome<()> {
+pub fn normalize_name(name: Option<String>) -> Outcome<Option<String>> {
+    let name = name.unwrap_or_default().trim().to_string();
+    if name.chars().count() > 200 {
+        return Err("Names must be 200 characters or fewer".into());
+    }
+    Ok((!name.is_empty()).then_some(name))
+}
+pub fn update_source(
+    root: &Path,
+    id: &str,
+    tags: Vec<String>,
+    note: String,
+    name: Option<String>,
+) -> Outcome<()> {
     valid_id(id)?;
     let path = safe(root, format!("sources/{id}.json"))?;
     let mut s: Source = read(&path)?;
     if s.id != id {
         return Err("Source ID mismatch".into());
     }
+    s.name = normalize_name(name)?;
     s.tags = tags;
     s.note = note;
     write_json(&path, &s)?;
@@ -756,8 +775,9 @@ pub fn add_result(
     prompt_id: &str,
     path: Option<&Path>,
     bytes: Option<&[u8]>,
-    fields: ResultInput,
+    mut fields: ResultInput,
 ) -> Outcome<String> {
+    fields.name = normalize_name(fields.name)?;
     valid_id(prompt_id)?;
     let _: PromptMeta = read(&safe(root, format!("prompts/{prompt_id}/meta.json"))?)?;
     for sid in &fields.source_photos {
@@ -779,7 +799,13 @@ pub fn add_result(
     let _ = thumbnail(root, &id, &safe(root, format!("{dir}/{file}"))?);
     Ok(id)
 }
-pub fn update_result(root: &Path, prompt_id: &str, id: &str, fields: ResultInput) -> Outcome<()> {
+pub fn update_result(
+    root: &Path,
+    prompt_id: &str,
+    id: &str,
+    mut fields: ResultInput,
+) -> Outcome<()> {
+    fields.name = normalize_name(fields.name)?;
     valid_id(prompt_id)?;
     valid_id(id)?;
     let path = safe(root, format!("prompts/{prompt_id}/results/{id}.json"))?;

@@ -1014,6 +1014,8 @@ a {
 .needs-row .checks { flex: 1; }
 .needs-row > .field { width: 150px; flex: none; }
 #modal .tag-editor { margin-top: 10px; }
+#modal .name-editor { margin-bottom: 8px; }
+#modal .name-editor > small { display: block; margin-top: 4px; overflow-wrap: anywhere; }
 #modal .source-preview { max-height: 170px; margin-bottom: 8px; }
 #modal .source-uses { margin-top: 12px; }
 #modal .source-picker-grid { max-height: 180px; overflow-y: auto; }

@@ -1,3 +1,6 @@
+export function sourceName(s) { return s.name?.trim() || s.originalName; }
+export function resultName(r, date) { return r.name?.trim() || date(r.createdAt); }
+
 // Shared source-photo controls and transient multi-selection in a prompt's result grid.
 export function sourcePhotoPicker({ sources, needs = [], chosen = [], asset, esc }) {
   const matches = (s) => s.tags.some((tag) => needs.includes(tag));
@@ -5,7 +8,7 @@ export function sourcePhotoPicker({ sources, needs = [], chosen = [], asset, esc
   const options = ordered
     .map(
       (s) =>
-        `<label class="source-option"><input type="checkbox" name="sources" value="${s.id}" ${chosen.includes(s.id) ? "checked" : ""}><span class="source-option-photo">${s.thumbnail ? `<img src="${asset(s.thumbnail)}" alt="" loading="lazy" decoding="async">` : '<span class="muted">No preview</span>'}</span><span class="source-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg></span><span class="source-option-name">${esc(s.originalName)}</span>${matches(s) ? "<small>Matches prompt</small>" : ""}</label>`,
+        `<label class="source-option"><input type="checkbox" name="sources" value="${s.id}" ${chosen.includes(s.id) ? "checked" : ""}><span class="source-option-photo">${s.thumbnail ? `<img src="${asset(s.thumbnail)}" alt="" loading="lazy" decoding="async">` : '<span class="muted">No preview</span>'}</span><span class="source-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg></span><span class="source-option-name">${esc(sourceName(s))}</span>${matches(s) ? "<small>Matches prompt</small>" : ""}</label>`,
     )
     .join("");
   const missing = chosen
@@ -38,7 +41,7 @@ export function createResultSelection({ asset, esc, button, date }) {
     selected = new Set([...selected].filter((id) => items.some((r) => r.id === id)));
   }
   function card(r, pid) {
-    return `<button type="button" class="card result-card ${selected.has(r.id) ? "is-selected" : ""}" data-action="result" data-id="${r.id}" data-pid="${pid}" ${mode ? `aria-pressed="${selected.has(r.id)}"` : ""} aria-label="${mode ? "Select" : "View"} result from ${esc(date(r.createdAt))}"><img src="${asset(r.thumbnail || r.path)}" alt="${esc(r.note || "Generated result")}" loading="lazy">${mode ? `<span class="result-choice" aria-hidden="true">${selected.has(r.id) ? '<svg viewBox="0 0 16 16" width="16" height="16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg>' : ""}</span>` : ""}${r.favorite ? '<span class="star">★</span>' : ""}<div class="card-body"><small>${esc(date(r.createdAt))}</small></div></button>`;
+    return `<button type="button" class="card result-card ${selected.has(r.id) ? "is-selected" : ""}" data-action="result" data-id="${r.id}" data-pid="${pid}" ${mode ? `aria-pressed="${selected.has(r.id)}"` : ""} aria-label="${mode ? "Select" : "View"} result ${esc(resultName(r, date))}"><img src="${asset(r.thumbnail || r.path)}" alt="${esc(resultName(r, date))}" loading="lazy">${mode ? `<span class="result-choice" aria-hidden="true">${selected.has(r.id) ? '<svg viewBox="0 0 16 16" width="16" height="16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg>' : ""}</span>` : ""}${r.favorite ? '<span class="star">★</span>' : ""}<div class="card-body"><small>${esc(resultName(r, date))}</small></div></button>`;
   }
   function choose(id, event) {
     if (!mode && !event.metaKey && !event.ctrlKey && !event.shiftKey) return false;

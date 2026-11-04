@@ -62,7 +62,7 @@ fn malformed_records_are_preserved_and_reported() {
         .iter()
         .any(|w| w.contains("20261104-120000-abcd.json")));
     assert_eq!(fs::read(&p).unwrap(), b"{bad");
-    assert!(update_source(&r, "20261104-120000-abcd", vec![], "".into()).is_err());
+    assert!(update_source(&r, "20261104-120000-abcd", vec![], "".into(), None).is_err());
     assert_eq!(fs::read(&p).unwrap(), b"{bad");
 }
 #[test]
@@ -110,7 +110,7 @@ fn edits_and_missing_source_reference_roundtrip() {
     let sid = import_source(&r, None, Some(b"\x89PNG\r\n\x1a\nfake"), vec![])
         .unwrap()
         .id;
-    update_source(&r, &sid, vec!["custom".into()], "note".into()).unwrap();
+    update_source(&r, &sid, vec!["custom".into()], "note".into(), None).unwrap();
     let p = create_prompt(&r, meta(), "old".into()).unwrap();
     let mut m = meta();
     m.favorite = true;
@@ -472,4 +472,133 @@ fn prompt_update_does_not_restore_missing_existing_needs_to_vocabulary() {
     input.tags.push("x".into());
     update_prompt(&root, &p, input, "text".into()).unwrap();
     assert!(!load_library(&root).unwrap().tags.contains(&"single".into()));
+}
+
+#[test]
+fn display_names_preserve_storage_links_and_legacy_json() {
+    let dir = tempdir().unwrap();
+    let root = open_library(dir.path(), false).unwrap();
+    let s = import_source(
+        &root,
+        None,
+        Some(b"\x89PNG\r\n\x1a\nsource bytes"),
+        vec!["pet".into()],
+    )
+    .unwrap();
+    let pid = create_prompt(&root, meta(), "prompt".into()).unwrap();
+    let fields = ResultInput {
+        source_photos: vec![s.id.clone()],
+        note: "keep note".into(),
+        ..Default::default()
+    };
+    let rid = add_result(
+        &root,
+        &pid,
+        None,
+        Some(b"\x89PNG\r\n\x1a\nresult bytes"),
+        fields.clone(),
+    )
+    .unwrap();
+    let sp = root.join(format!("sources/{}.json", s.id));
+    let rp = root.join(format!("prompts/{pid}/results/{rid}.json"));
+    // These records have the legacy shape: no name field at all.
+    let before = [fs::read(&sp).unwrap(), fs::read(&rp).unwrap()];
+    let modified = [
+        fs::metadata(&sp).unwrap().modified().unwrap(),
+        fs::metadata(&rp).unwrap().modified().unwrap(),
+    ];
+    assert!(!String::from_utf8_lossy(&before[0]).contains("\"name\""));
+    assert!(!String::from_utf8_lossy(&before[1]).contains("\"name\""));
+    let lib = load_library(&root).unwrap();
+    assert_eq!(lib.sources[0].meta.name, None);
+    assert_eq!(lib.prompts[0].results[0].meta.fields.name, None);
+    for (i, p) in [&sp, &rp].iter().enumerate() {
+        assert_eq!(fs::read(p).unwrap(), before[i]);
+        assert_eq!(fs::metadata(p).unwrap().modified().unwrap(), modified[i]);
+    }
+    let thumb = root.join(format!(".thumbs/{}.jpg", s.id));
+    fs::write(&thumb, b"existing thumbnail").unwrap();
+    update_source(
+        &root,
+        &s.id,
+        s.tags.clone(),
+        s.note.clone(),
+        Some("  Kujira in a bucket  ".into()),
+    )
+    .unwrap();
+    update_result(
+        &root,
+        &pid,
+        &rid,
+        ResultInput {
+            name: Some("  Painted Kujira  ".into()),
+            ..fields.clone()
+        },
+    )
+    .unwrap();
+    let loaded: Source = read(&sp).unwrap();
+    let result: ResultMeta = read(&rp).unwrap();
+    assert_eq!(loaded.name.as_deref(), Some("Kujira in a bucket"));
+    assert_eq!(result.fields.name.as_deref(), Some("Painted Kujira"));
+    assert_eq!(loaded.original_name, s.original_name);
+    assert_eq!(loaded.file, s.file);
+    assert_eq!(loaded.id, s.id);
+    assert_eq!(result.file, format!("{rid}.png"));
+    assert_eq!(result.fields.source_photos, fields.source_photos);
+    assert_eq!(result.fields.note, "keep note");
+    assert_eq!(
+        fs::read(root.join("sources").join(&s.file)).unwrap(),
+        b"\x89PNG\r\n\x1a\nsource bytes"
+    );
+    assert_eq!(
+        fs::read(root.join(format!("prompts/{pid}/results/{}", result.file))).unwrap(),
+        b"\x89PNG\r\n\x1a\nresult bytes"
+    );
+    assert_eq!(fs::read(&thumb).unwrap(), b"existing thumbnail");
+    let named = [fs::read(&sp).unwrap(), fs::read(&rp).unwrap()];
+    assert!(update_source(
+        &root,
+        &s.id,
+        vec![],
+        "changed".into(),
+        Some("a".repeat(201))
+    )
+    .is_err());
+    assert!(update_result(
+        &root,
+        &pid,
+        &rid,
+        ResultInput {
+            name: Some("a".repeat(201)),
+            ..fields.clone()
+        }
+    )
+    .is_err());
+    assert_eq!(fs::read(&sp).unwrap(), named[0]);
+    assert_eq!(fs::read(&rp).unwrap(), named[1]);
+    update_source(&root, &s.id, s.tags, s.note, Some(" \n ".into())).unwrap();
+    update_result(
+        &root,
+        &pid,
+        &rid,
+        ResultInput {
+            name: Some("   ".into()),
+            ..fields
+        },
+    )
+    .unwrap();
+    for p in [sp, rp] {
+        let value: serde_json::Value = read(&p).unwrap();
+        assert!(value.get("name").is_none());
+    }
+}
+
+#[test]
+fn names_count_unicode_characters_after_trimming() {
+    assert_eq!(
+        normalize_name(Some(format!("  {}  ", "猫".repeat(200)))).unwrap(),
+        Some("猫".repeat(200))
+    );
+    assert!(normalize_name(Some("🐈".repeat(201))).is_err());
+    assert_eq!(normalize_name(None).unwrap(), None);
 }

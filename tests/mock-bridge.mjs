@@ -61,7 +61,7 @@ export function installMockBridge() {
           case "update_source":
             Object.assign(
               lib.sources.find((s) => s.id === args.id),
-              { tags: args.tags, note: args.note },
+              { tags: args.tags, note: args.note, name: args.name ?? null },
             );
             return;
           case "create_prompt": {

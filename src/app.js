@@ -1,5 +1,5 @@
 import { createPromptGrid } from "./prompt-cards.js";
-import { sourcePhotoPicker, createResultSelection } from "./result-tools.js";
+import { sourcePhotoPicker, createResultSelection, sourceName, resultName } from "./result-tools.js";
 
 const { invoke, convertFileSrc, Channel } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -49,11 +49,19 @@ const photoPicker = (p, chosen = []) =>
   sourcePhotoPicker({ sources: library.sources, needs: p.needs, chosen, asset, esc });
 const resultMeta = (r, sourcePhotos) => ({
   sourcePhotos,
+  name: r.name ?? null,
   chatUrl: r.chatUrl,
   model: r.model,
   note: r.note,
   favorite: r.favorite,
 });
+// Leaving a fallback untouched must not turn it into a custom name.
+function editedName(value, displayed, stored) {
+  const name = value.trim();
+  if (name === displayed) return stored ?? null;
+  if ([...name].length > 200) throw new Error("Names must be 200 characters or fewer");
+  return name || null;
+}
 function toast(message) {
   clearTimeout(toastTimer);
   $("#toast").textContent = message;
@@ -121,7 +129,7 @@ function warnings() {
     : "";
 }
 function sourceCard(s, mini = false) {
-  const card = `<button class="card source-card ${s.id === selectedSource ? "selected" : ""}" data-action="source" data-id="${s.id}" aria-label="Preview ${esc(s.originalName)}"><img src="${asset(s.thumbnail || s.path)}" alt="${esc(s.originalName)}" draggable="false" loading="lazy"><div class="card-body">${mini ? esc(s.originalName) : `<h3>${esc(s.originalName)}</h3><div class="badges">${badges(s.tags)}</div>`}</div></button>`;
+  const card = `<button class="card source-card ${s.id === selectedSource ? "selected" : ""}" data-action="source" data-id="${s.id}" aria-label="Preview ${esc(sourceName(s))}"><img src="${asset(s.thumbnail || s.path)}" alt="${esc(sourceName(s))}" draggable="false" loading="lazy"><div class="card-body">${mini ? esc(sourceName(s)) : `<h3>${esc(sourceName(s))}</h3><div class="badges">${badges(s.tags)}</div>`}</div></button>`;
   return mini ? `<div class="source-mini">${card}</div>` : card;
 }
 function renderSidebar() {
@@ -158,7 +166,7 @@ function render() {
   const isPrompts = view === "prompts";
   const items = (isPrompts ? library.prompts : library.sources).filter((item) => {
     const tags = isPrompts ? [...item.tags, ...item.needs] : item.tags;
-    const text = isPrompts ? [item.title, item.text, item.notes, ...tags] : [item.originalName, item.note, ...tags];
+    const text = isPrompts ? [item.title, item.text, item.notes, ...item.results.map((r) => resultName(r, date)), ...tags] : [sourceName(item), item.originalName, item.note, ...tags];
     return (
       (!filter || tags.includes(filter)) &&
       (!isPrompts || !favorites || item.favorite) &&
@@ -264,13 +272,14 @@ function openSource(id) {
     p.results.filter((r) => r.sourcePhotos.includes(id)).map((r) => ({ p, r })),
   );
   showModal(
-    s.originalName,
-    `<img class="source-preview" src="${asset(s.path)}" alt="${esc(s.originalName)}"><div class="actions">${button("copy-image", "Copy image", "primary", `data-id="${id}"`)}${button("reveal", "Reveal in Finder", "", `data-id="${id}"`)}${button("delete-source", "Move to Trash", "danger", `data-id="${id}"`)}</div><div class="section-header"><h3>Tags</h3></div>${tagChecks("tags", s.tags)}<div class="tag-editor">${field("New tags, separated by commas", "newTags")}</div><div class="tag-editor">${field("Note", "note", s.note, { area: true })}</div><div class="source-uses"><h3>Results that used this photo (${uses.length})</h3>${uses.length ? uses.map(({ p, r }) => button("result", esc(p.title), "", `data-id="${r.id}" data-pid="${p.id}"`)).join("") : "<small>No linked results yet.</small>"}</div>${footer("Save photo details")}`,
+    sourceName(s),
+    `<div class="name-editor">${field("Name", "name", sourceName(s))}${s.name?.trim() ? `<small class="muted">Original file: ${esc(s.originalName)}</small>` : ""}</div><img class="source-preview" src="${asset(s.path)}" alt="${esc(sourceName(s))}"><div class="actions">${button("copy-image", "Copy image", "primary", `data-id="${id}"`)}${button("reveal", "Reveal in Finder", "", `data-id="${id}"`)}${button("delete-source", "Move to Trash", "danger", `data-id="${id}"`)}</div><div class="section-header"><h3>Tags</h3></div>${tagChecks("tags", s.tags)}<div class="tag-editor">${field("New tags, separated by commas", "newTags")}</div><div class="tag-editor">${field("Note", "note", s.note, { area: true })}</div><div class="source-uses"><h3>Results that used this photo (${uses.length})</h3>${uses.length ? uses.map(({ p, r }) => button("result", esc(`${p.title} · ${resultName(r, date)}`), "", `data-id="${r.id}" data-pid="${p.id}"`)).join("") : "<small>No linked results yet.</small>"}</div>${footer("Save photo details")}`,
     async (form) => {
       await invoke("update_source", {
         id,
         tags: collectedTags(form, "tags", "newTags"),
         note: form.elements.note.value,
+        name: editedName(form.elements.name.value, sourceName(s), s.name),
       });
       closeModal();
       await refresh();
@@ -362,15 +371,15 @@ function renderLightbox() {
     return;
   }
   $("#lightbox-content").innerHTML =
-    `<div class="dialog-header"><div class="actions">${button("prev-result", "←", "", `aria-label="Previous result" ${lightIndex === 0 ? "disabled" : ""}`)}<small>${lightIndex + 1} / ${lightItems.length}</small>${button("next-result", "→", "", `aria-label="Next result" ${lightIndex === lightItems.length - 1 ? "disabled" : ""}`)}</div>${button("close-lightbox", "✕", "icon", 'aria-label="Close result"')}</div><img class="lightbox-image" src="${asset(r.path)}" alt="${esc(r.note || "Generated result")}"><div class="lightbox-footer"><div class="actions"><small>${esc(date(r.createdAt))} · ${esc(r.model)}</small><div class="actions">${button("favorite-result", r.favorite ? "★ Favorite" : "☆ Favorite")}${button("edit-result", "Edit")}${r.chatUrl ? button("open-url", "Open chat ↗", "primary", `data-url="${esc(r.chatUrl)}"`) : ""}${button("delete-result", "Move to Trash", "danger")}</div></div>${r.note ? `<p>${esc(r.note)}</p>` : ""}<div class="image-sources">${r.sourcePhotos.length ? "<small>Source photos:</small>" : ""}${r.sourcePhotos
+    `<div class="dialog-header"><div class="actions">${button("prev-result", "←", "", `aria-label="Previous result" ${lightIndex === 0 ? "disabled" : ""}`)}<small>${lightIndex + 1} / ${lightItems.length}</small>${button("next-result", "→", "", `aria-label="Next result" ${lightIndex === lightItems.length - 1 ? "disabled" : ""}`)}</div>${button("close-lightbox", "✕", "icon", 'aria-label="Close result"')}</div><img class="lightbox-image" src="${asset(r.path)}" alt="${esc(resultName(r, date))}"><div class="lightbox-footer"><div class="actions"><small>${esc(resultName(r, date))} · ${esc(r.model)}</small><div class="actions">${button("favorite-result", r.favorite ? "★ Favorite" : "☆ Favorite")}${button("edit-result", "Edit")}${r.chatUrl ? button("open-url", "Open chat ↗", "primary", `data-url="${esc(r.chatUrl)}"`) : ""}${button("delete-result", "Move to Trash", "danger")}</div></div>${r.note ? `<p>${esc(r.note)}</p>` : ""}<div class="image-sources">${r.sourcePhotos.length ? "<small>Source photos:</small>" : ""}${r.sourcePhotos
       .map((id) => {
         const s = source(id);
         return s
           ? button(
               "light-source",
-              `<img src="${asset(s.thumbnail || s.path)}" alt=""><span>${esc(s.originalName)}</span>`,
+              `<img src="${asset(s.thumbnail || s.path)}" alt=""><span>${esc(sourceName(s))}</span>`,
               "linked-source",
-              `data-id="${id}" aria-label="Open source photo ${esc(s.originalName)}"`,
+              `data-id="${id}" aria-label="Open source photo ${esc(sourceName(s))}"`,
             )
           : '<span class="missing">Source photo missing</span>';
       })
@@ -382,7 +391,7 @@ function editResult() {
   lightbox.close();
   showModal(
     "Edit result",
-    `${photoPicker(
+    `${field("Name", "name", resultName(r, date))}${photoPicker(
       library.prompts.find((p) => p.id === pid),
       r.sourcePhotos,
     )}<div class="tag-editor">${field("Chat URL", "chatUrl", r.chatUrl)}</div><div class="tag-editor">${field("Model", "model", r.model)}</div><div class="tag-editor">${field("Note", "note", r.note, { area: true })}</div>${footer()}`,
@@ -392,6 +401,7 @@ function editResult() {
         promptId: pid,
         id: r.id,
         meta: {
+          name: editedName(f.get("name"), resultName(r, date), r.name),
           sourcePhotos: f.getAll("sources"),
           chatUrl: f.get("chatUrl").trim(),
           model: f.get("model"),

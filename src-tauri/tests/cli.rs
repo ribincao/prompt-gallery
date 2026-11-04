@@ -281,3 +281,118 @@ fn cli_tags_follow_removal_rename_and_explicit_add() {
         .unwrap()
         .contains(&serde_json::json!("single")));
 }
+
+#[test]
+fn name_flags_pair_paths_and_preserve_reused_sources() {
+    use prompt_gallery_lib::library;
+    let config = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let inputs = tempdir().unwrap();
+    let a = inputs.path().join("a.png");
+    let b = inputs.path().join("b.png");
+    fs::write(&a, b"image a").unwrap();
+    fs::write(&b, b"image b").unwrap();
+    let root = dir.path().to_str().unwrap();
+    let a = a.to_str().unwrap();
+    let b = b.to_str().unwrap();
+    let first = ok(
+        &config,
+        &[
+            "add",
+            "--library",
+            root,
+            "--prompt-text",
+            "names",
+            "--result",
+            a,
+            "--source",
+            a,
+            "--source-name",
+            "  Original cat  ",
+        ],
+    );
+    let sid = first["sourceIds"][0].as_str().unwrap();
+    let second = ok(
+        &config,
+        &[
+            "add",
+            "--library",
+            root,
+            "--prompt-text",
+            "names",
+            "--result",
+            a,
+            "--result",
+            b,
+            "--result-name",
+            "  First painting  ",
+            "--result-name",
+            "Second painting",
+            "--source",
+            sid,
+            "--source",
+            a,
+            "--source",
+            b,
+            "--source-name",
+            "Must not overwrite",
+            "--source-name",
+            "New cat",
+        ],
+    );
+    let lib = library::load_library(dir.path()).unwrap();
+    assert_eq!(
+        lib.sources
+            .iter()
+            .find(|s| s.meta.id == sid)
+            .unwrap()
+            .meta
+            .name
+            .as_deref(),
+        Some("Original cat")
+    );
+    assert_eq!(
+        lib.sources
+            .iter()
+            .find(|s| s.meta.id != sid)
+            .unwrap()
+            .meta
+            .name
+            .as_deref(),
+        Some("New cat")
+    );
+    for (i, name) in ["First painting", "Second painting"].iter().enumerate() {
+        let rid = second["resultIds"][i].as_str().unwrap();
+        assert_eq!(
+            lib.prompts[0]
+                .results
+                .iter()
+                .find(|r| r.meta.id == rid)
+                .unwrap()
+                .meta
+                .fields
+                .name
+                .as_deref(),
+            Some(*name)
+        );
+    }
+    for flags in [
+        vec!["--result-name", "x", "--result-name", "y"],
+        vec!["--source-name", "no path"],
+        vec!["--result-name", &"x".repeat(201)],
+    ] {
+        let untouched = tempdir().unwrap();
+        let mut args = vec![
+            "add",
+            "--library",
+            untouched.path().to_str().unwrap(),
+            "--prompt-text",
+            "names",
+            "--result",
+            a,
+        ];
+        args.extend(flags);
+        assert!(!run(&config, &args).status.success());
+        assert_eq!(fs::read_dir(untouched.path()).unwrap().count(), 0);
+    }
+}
