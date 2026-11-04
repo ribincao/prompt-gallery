@@ -1,0 +1,29 @@
+# ── Rust / Tauri build artifacts ───────────────────────────
+target/
+**/target/
+# Tauri auto-generates these from capabilities at build time
+src-tauri/gen/schemas/
+
+# ── Node ───────────────────────────────────────────────────
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ── Secrets / env ──────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Logs / temp ────────────────────────────────────────────
+*.log
+/tmp/
+
+# ── macOS ──────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── Editors / IDEs ─────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
