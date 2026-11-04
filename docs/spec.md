@@ -1,6 +1,6 @@
 # Prompt Gallery — spec (v1)
 
-A local macOS app for collecting AI image prompts, the source photos you feed them, and
+A local macOS app for collecting AI image prompts, the photos you feed them, and
 the images they produced. Built with Tauri 2, like `retro-media-player`. Nothing is
 uploaded anywhere; the app only reads and writes a folder on your Mac.
 
@@ -23,7 +23,7 @@ Source photo ──used by──▶ Result ◀──produced by── Prompt
 - **Result**: an image a prompt generated, remembering which source photo(s) it used and
   the ChatGPT conversation it came from.
 
-Opening a prompt shows the source photos whose tags match what the prompt needs, so the
+Opening a prompt shows the photos whose tags match what the prompt needs, so the
 right photo is one click away.
 
 ## Repo vs library
@@ -125,7 +125,7 @@ and "Optimize Mac Storage" evicts originals).
 
 One window, native macOS title bar, follows system light/dark mode.
 
-**Sidebar**: two sections, **Prompts** and **Source photos**; a search box; tag filter
+**Sidebar**: two sections, **Prompts** and **Photos**; a search box; tag filter
 chips; a "Favorites" filter.
 
 **Prompts view**: a grid of prompt cards showing the title and `needs` tags. A card with
@@ -144,22 +144,22 @@ button appears on hover or keyboard focus and opens the image picker for that pr
 **Cmd+V** pastes a clipboard image into the hovered card, or the focused/selected card
 when no card is hovered; a card gains selection through focus or pointer interaction.
 Clicking the main card still opens prompt detail. All three import paths open the same
-**Add result** form as prompt detail, asking for source photos used and prefilling a
+**Add result** form as prompt detail, asking for photos used and prefilling a
 chatgpt.com chat URL from the clipboard. Adding from the grid keeps the user in the grid.
 Search matches title, prompt text, tags and notes. The data model is unchanged.
 
 **Prompt detail** (opens when a card is clicked):
 - Title and the full prompt text, with a big **Copy prompt** button (shows "Copied").
 - Edit button: edit title, text, needs, tags, source URL, notes.
-- **Suggested source photos**: a strip of source photos whose tags intersect `needs`,
+- **Suggested photos**: a strip of photos whose tags intersect `needs`,
   newest first. Needs match **any** selected tag. If none match and the library has sources,
-  offer **Show all source photos** in place. Photos can be dragged out; **Reveal in Finder**
+  offer **Show all photos** in place. Photos can be dragged out; **Reveal in Finder**
   is available in the right-click menu, without a repeated button or hover tooltip.
 - **Results**: a grid of this prompt's results. Click opens a lightbox (arrow keys to step
   through, Esc to close) showing the image, its source photo(s), date, note and an
-  "Open chat" link that opens `chatUrl` in the default browser. Linked source photos appear
+  "Open chat" link that opens `chatUrl` in the default browser. Linked photos appear
   as clickable thumbnails that open their source detail. **Select**, Cmd-click, and
-  Shift-click enable multi-selection; **Set source photos…** replaces the source links on
+  Shift-click enable multi-selection; **Set photos…** replaces the source links on
   every selected result while preserving chat URL, model, note, and favorite status.
 - **Add result**: paste (Cmd+V), drop files, or pick files. After adding, a small form
   asks for the source photo(s) used (pre-filled with the last one picked from the strip)
@@ -171,7 +171,7 @@ Search matches title, prompt text, tags and notes. The data model is unchanged.
 folder. Pasting a long block of text into the empty grid also opens this form with the
 text filled in.
 
-**Source photos view**: a one-level virtual folder grid with newest-item covers, counts, Unfiled (when nonempty), and New folder. Folder items have a root breadcrumb. Search/tag filters show a flat cross-folder list with folder labels. Add via paste, drop or
+**Photos view**: a one-level virtual folder grid with newest-item covers, counts, Unfiled (when nonempty), and New folder. Folder items have a root breadcrumb. Search/tag filters show a flat cross-folder list with folder labels. Add via paste, drop or
 picker; imports inside a folder inherit it. Select/Cmd/Shift selection supports Move to…; folder menus support Rename and Delete. Deletion moves memberships to Unfiled and keeps media. Newly added photos open a tag picker straight away. Click a photo to edit its name, tags
 and note, see which results used it, reveal it in Finder, or delete it.
 
@@ -183,13 +183,13 @@ suggested default and a short line about why the data lives outside the app.
 - **Pick files**: native file dialog, multiple selection, images and videos
   (jpg, jpeg, png, webp, heic, gif, mp4, mov, m4v; case-insensitive).
 - **Drop files**: Tauri's drag-drop event (it gives real file paths). Dropping on the
-  Source photos view adds sources; dropping on a prompt adds results.
+  Photos view adds sources; dropping on a prompt adds results.
 - **Paste**: an image on the clipboard (e.g. copied from ChatGPT) is read in the frontend and
   sent to the backend as bytes, saved as PNG.
 ## Using a source photo (getting it into ChatGPT)
 
 Photos are always sent from the library itself; the app never exports copies to another
-folder. On any source photo thumbnail (the Source photos grid and the suggested strip on a
+folder. On any source photo thumbnail (the Photos grid and the suggested strip on a
 prompt):
 
 | Action | Does |
@@ -344,3 +344,30 @@ the complete representation length with no body read. Current-library guards app
 
 Commands added: `create_folder(name)`, `rename_folder(id,name)`, `delete_folder(id)`,
 `move_sources(ids,folder)` (null means Unfiled). All storage mutation stays in library.rs.
+
+## Compact macOS shell and audio
+
+The Overlay title bar hides the native title. Traffic lights occupy the reserved 48 px
+sidebar top; toolbar and sidebar chrome expose Tauri drag regions with only start-dragging
+permission. Photos replaces the source-section label; internal `sources` IDs remain unchanged.
+Search and primary/secondary actions share one toolbar. Only the main pane scrolls at page
+level; long prompt text and modal lists can scroll internally. Cards use square covers and
+two compact caption lines. Tags use stable name-hashed palette dots and usage counts
+(source records plus prompts, deduplicating needs/tags within each prompt). The six most-used
+tags appear first; expansion is stored with guarded localStorage access.
+
+Audio imports accept `.mp3`, `.m4a`, `.aac`, `.wav`, `.aif`, `.aiff` and `.flac`,
+case-insensitively, in every file-import path, including CLI sources/results. No audio paste.
+Source/result metadata adds `"kind":"audio"` with optional `durationSeconds`; missing kind
+still means image and old records load without migration. Original files are copied unchanged.
+Audio uses the existing bounded Quick Look/sips poster attempt (shared eight-second deadline,
+once per process/library/item). No cover is required: a name-hashed music-note tile is used.
+Tests disable native posters. Duration uses best-effort mdls, just like video.
+
+Audio MIME types: MP3 `audio/mpeg`, M4A `audio/mp4`, AAC `audio/aac`, WAV `audio/wav`,
+AIF/AIFF `audio/aiff`, FLAC `audio/flac`. Audio and video use the same guarded streamed-media
+handler: GET/HEAD, single ranges, 206/416 and a 4 MiB response cap. Audio previews show a
+cover with `<audio controls preload="metadata">` beneath it, without autoplay. Closing
+pauses playback. Copy audio puts only the original file URL on NSPasteboard; drag-out uses
+the original file and a cover or app-icon drag preview. Tags, folders, source/result linking,
+Trash, backup and live refresh follow existing media behavior.

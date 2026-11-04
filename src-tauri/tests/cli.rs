@@ -458,3 +458,62 @@ fn video_folder_flag_preserves_reused_source_folder() {
     let after: Value = serde_json::from_slice(&fs::read(source_path).unwrap()).unwrap();
     assert_eq!(after, source);
 }
+
+#[test]
+fn audio_folder_flag_preserves_reused_source_folder() {
+    let config = tempdir().unwrap();
+    let library = tempdir().unwrap();
+    let input = tempdir().unwrap();
+    let video = input.path().join("audio.FLAC");
+    fs::write(&video, b"audio fixture").unwrap();
+    let root = library.path().to_str().unwrap();
+    let path = video.to_str().unwrap();
+    let first = ok(
+        &config,
+        &[
+            "add",
+            "--library",
+            root,
+            "--prompt-text",
+            "audio",
+            "--result",
+            path,
+            "--source",
+            path,
+            "--source-folder",
+            "Family",
+            "--source-name",
+            "Clip.flac",
+            "--json",
+        ],
+    );
+    let folders = ok(&config, &["folders", "--library", root, "--json"]);
+    assert_eq!(folders[0]["name"], "Family");
+    let source_path = library
+        .path()
+        .join("sources")
+        .join(format!("{}.json", first["sourceIds"][0].as_str().unwrap()));
+    let source: Value = serde_json::from_slice(&fs::read(&source_path).unwrap()).unwrap();
+    assert_eq!(source["folder"], folders[0]["id"]);
+    assert_eq!(source["kind"], "audio");
+    assert_eq!(source["name"], "Clip");
+    ok(
+        &config,
+        &[
+            "add",
+            "--library",
+            root,
+            "--prompt-text",
+            "audio",
+            "--result",
+            path,
+            "--source",
+            path,
+            "--source-folder",
+            "Other",
+            "--json",
+        ],
+    );
+    let after: Value = serde_json::from_slice(&fs::read(source_path).unwrap()).unwrap();
+    assert_eq!(after, source);
+}

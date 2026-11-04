@@ -139,19 +139,20 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
                 .filter(|s| library::valid_id(s).is_err()),
         ) {
             if !Path::new(&p).is_file() {
-                return Err(format!("Image file not found: {p}"));
+                return Err(format!("Media file not found: {p}"));
             }
             if !Path::new(&p)
                 .extension()
                 .and_then(|s| s.to_str())
                 .is_some_and(|s| {
                     [
-                        "jpg", "jpeg", "png", "webp", "heic", "gif", "mp4", "mov", "m4v",
+                        "jpg", "jpeg", "png", "webp", "heic", "gif", "mp4", "mov", "m4v", "mp3",
+                        "m4a", "aac", "wav", "aif", "aiff", "flac",
                     ]
                     .contains(&s.to_lowercase().as_str())
                 })
             {
-                return Err(format!("Unsupported image format: {p}"));
+                return Err(format!("Unsupported media format: {p}"));
             }
         }
         Some(text)

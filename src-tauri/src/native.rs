@@ -16,7 +16,7 @@ pub fn copy_image(path: &Path) -> Outcome<()> {
     let item = NSPasteboardItem::new();
     // These AppKit constants live for the process lifetime.
     let mut valid = unsafe { item.setString_forType(&url, NSPasteboardTypeFileURL) };
-    if !crate::library::is_video(path) {
+    if !crate::library::is_streamed_media(path) {
         let image = NSImage::initWithContentsOfFile(NSImage::alloc(), &filename)
             .ok_or("macOS could not decode this image")?;
         let tiff = image

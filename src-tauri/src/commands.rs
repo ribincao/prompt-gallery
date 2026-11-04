@@ -97,9 +97,10 @@ pub async fn pick_image_files(app: AppHandle) -> Outcome<Vec<String>> {
         app.dialog()
             .file()
             .add_filter(
-                "Images and videos",
+                "Images, videos and audio",
                 &[
-                    "jpg", "jpeg", "png", "webp", "heic", "gif", "mp4", "mov", "m4v",
+                    "jpg", "jpeg", "png", "webp", "heic", "gif", "mp4", "mov", "m4v", "mp3", "m4a",
+                    "aac", "wav", "aif", "aiff", "flac",
                 ],
             )
             .blocking_pick_files()

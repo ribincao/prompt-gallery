@@ -748,3 +748,45 @@ fn missing_video_posters_are_attempted_once_per_session_and_library() {
     assert!(!claim_poster_attempt(&attempts, a));
     assert!(claim_poster_attempt(&attempts, b));
 }
+
+#[test]
+fn audio_formats_import_as_sources_and_linked_results_without_changing_images() {
+    let dir = tempdir().unwrap();
+    let root = open_library(dir.path(), false).unwrap();
+    let inputs = tempdir().unwrap();
+    let pid = create_prompt(&root, meta(), "Generate speech".into()).unwrap();
+    for ext in ["MP3", "m4a", "AAC", "wav", "aif", "AIFF", "flac"] {
+        let path = inputs.path().join(format!("Voice.{ext}"));
+        fs::write(&path, b"audio fixture").unwrap();
+        let source = import_source(&root, Some(&path), None, vec!["speech".into()]).unwrap();
+        assert_eq!(source.kind.as_deref(), Some("audio"));
+        let rid = add_result(
+            &root,
+            &pid,
+            Some(&path),
+            None,
+            ResultInput {
+                source_photos: vec![source.id.clone()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let loaded = load_library(&root).unwrap();
+        let result = loaded.prompts[0]
+            .results
+            .iter()
+            .find(|r| r.meta.id == rid)
+            .unwrap();
+        assert_eq!(result.meta.kind.as_deref(), Some("audio"));
+        assert_eq!(result.meta.fields.source_photos, vec![source.id]);
+        assert_eq!(fs::read(&path).unwrap(), b"audio fixture");
+    }
+    let image = import_source(&root, None, Some(b"\x89PNG\r\n\x1a\n"), vec![]).unwrap();
+    assert_eq!(image.kind, None);
+    assert_eq!(image.duration_seconds, None);
+    let json: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join("sources").join(format!("{}.json", image.id))).unwrap(),
+    )
+    .unwrap();
+    assert!(json.get("kind").is_none());
+}

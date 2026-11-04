@@ -1,5 +1,5 @@
 import { createPromptGrid } from "./prompt-cards.js";
-import { sourcePhotoPicker, createResultSelection, sourceName, resultName, stem, mediaPoster, mediaPreview } from "./result-tools.js";
+import { sourcePhotoPicker, createResultSelection, sourceName, resultName, stem, mediaPoster, mediaPreview, mediaBadge, audioPlaceholder } from "./result-tools.js";
 
 const { invoke, convertFileSrc, Channel } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -35,8 +35,15 @@ let lightItems = [],
   lightIndex = 0,
   lightPrompt = null,
   modalSubmit = null;
+let scrollTimer;
+main.addEventListener("scroll", () => {
+  main.classList.add("is-scrolling");
+  clearTimeout(scrollTimer);
+  scrollTimer = setTimeout(() => main.classList.remove("is-scrolling"), 700);
+}, { passive: true });
 let dragging = false;
 let showAllSourcesFor = null;
+let suggestionsExpandedFor = null;
 let sourceFolder = null; // null = folder grid; empty string = Unfiled
 let sourceMode = false, sourceAnchor = null, selectedSources = new Set(), visibleSources = [];
 const folders = () => library?.folders || [];
@@ -73,7 +80,7 @@ function renderSources(items) {
     const contents = library.sources.filter((s) => folderOf(s) === id);
     return `<article class="card folder-card" data-folder-target="${esc(id)}"><button data-action="open-folder" data-id="${esc(id)}">${contents[0]?.thumbnail ? `<img src="${asset(contents[0].thumbnail)}" alt="">` : '<span class="folder-cover">▱</span>'}<div class="card-body"><h3>${esc(name)}</h3><small>${contents.length} items</small></div></button>${id ? button("folder-menu", "⋯", "folder-menu", `data-id="${esc(id)}" aria-label="Manage ${esc(name)}"`) : ""}</article>`;
   };
-  main.innerHTML = `<header class="page-header"><div><h1>${sourceFolder !== null && !flat ? `${button("source-root", "Source photos", "back", 'data-folder-target=""')} › ${esc(folderLabel(sourceFolder))}` : "Source photos"}</h1></div><div class="actions">${!grid ? `${button("select-sources", sourceMode ? "Done" : "Select")}${sourceMode ? `<small>${selectedSources.size} selected</small>${button("move-sources", "Move to…", "", selectedSources.size ? "" : "disabled")}` : ""}` : ""}${button("paste", "Paste image")}${button("pick-sources", "+ Add photos", "primary")}</div></header>${warnings()}${!grid && folders().length ? `<div class="folder-drop-targets" aria-label="Move by dragging to a folder">${folders().map((f) => button("open-folder", esc(f.name), "chip", `data-id="${esc(f.id)}" data-folder-target="${esc(f.id)}"`)).join("")}</div>` : ""}<div class="grid">${grid ? folders().map((f) => folderCard(f.id, f.name)).join("") + (library.sources.some((s) => !folderOf(s)) ? folderCard("", "Unfiled") : "") + button("new-folder", "+ New folder", "card new-folder") : visibleSources.map((s) => sourceCard(s)).join("")}</div>${!grid && !visibleSources.length ? '<p class="empty">No matching items. Drop files here or choose Add photos.</p>' : ""}`;
+  main.innerHTML = `<header class="page-header"><div><h1>${sourceFolder !== null && !flat ? `${button("source-root", "Photos", "back", 'data-folder-target=""')} › ${esc(folderLabel(sourceFolder))}` : "Photos"}</h1><span class="toolbar-count">${grid ? library.sources.length : visibleSources.length}</span></div><div class="actions">${!grid ? `${button("select-sources", sourceMode ? "Done" : "Select")}${sourceMode ? `<small>${selectedSources.size} selected</small>${button("move-sources", "Move to…", "", selectedSources.size ? "" : "disabled")}` : ""}` : ""}${button("paste", "Paste image")}${button("pick-sources", "+ Add photos", "primary")}</div></header>${warnings()}${!grid && folders().length ? `<div class="folder-drop-targets" aria-label="Move by dragging to a folder">${folders().map((f) => button("open-folder", esc(f.name), "chip", `data-id="${esc(f.id)}" data-folder-target="${esc(f.id)}"`)).join("")}</div>` : ""}<div class="grid">${grid ? folders().map((f) => folderCard(f.id, f.name)).join("") + (library.sources.some((s) => !folderOf(s)) ? folderCard("", "Unfiled") : "") + button("new-folder", '<span class="new-folder-icon" aria-hidden="true">▱</span><span class="new-folder-label">+ New folder</span>', "card new-folder") : visibleSources.map((s) => sourceCard(s)).join("")}</div>${!grid && !visibleSources.length ? '<p class="empty">No matching items. Drop files here or choose Add photos.</p>' : ""}`;
 }
 
 const prompt = () => library?.prompts.find((p) => p.id === promptId);
@@ -81,7 +88,7 @@ const source = (id) => library?.sources.find((s) => s.id === id);
 const badges = (tags) => tags.map((t) => `<span class="badge">${esc(t)}</span>`).join("");
 const button = (action, label, cls = "", data = "") =>
   `<button type="button" data-action="${action}" class="${cls}" ${data}>${label}</button>`;
-const promptGrid = createPromptGrid({ main, asset, esc, badges, button });
+const promptGrid = createPromptGrid({ main, asset, esc, badges, button, mediaBadge, audioPlaceholder });
 const date = (text) => new Date(text).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const resultSelection = createResultSelection({ asset, esc, button, date });
 const photoPicker = (p, chosen = []) =>
@@ -174,24 +181,55 @@ function sourceCard(s, mini = false) {
 function renderSidebar() {
   $("#prompt-count").textContent = library.prompts.length;
   $("#source-count").textContent = library.sources.length;
-  $("#nav-prompts").classList.toggle("active", view === "prompts");
+  $("#nav-prompts").classList.toggle("active", view === "prompts" && !favorites);
   $("#nav-sources").classList.toggle("active", view === "sources");
-  $("#favorites").classList.toggle("active", favorites);
+  $("#favorites").classList.toggle("active", view === "prompts" && favorites);
   $("#favorites").setAttribute("aria-pressed", String(favorites));
   $("#favorites").disabled = view === "sources";
   $("#library-path").textContent = library.root;
   $("#library-path").title = library.root;
-  const tags = [...new Set([...library.tags, ...library.prompts.flatMap((p) => p.tags)])];
-  $("#tags").innerHTML =
-    `<button class="chip ${!filter ? "active" : ""}" data-action="filter" data-tag="">All</button>` +
-    tags
-      .map(
-        (t) =>
-          `<button class="chip ${filter === t ? "active" : ""}" data-action="filter" data-tag="${esc(t)}">${esc(t)}</button>`,
-      )
-      .join("");
+  $("#favorite-count").textContent = library.prompts.filter(p => p.favorite).length;
+  const usage = new Map(library.tags.map(t => [t, 0]));
+  for (const item of [...library.sources, ...library.prompts]) {
+    for (const tag of new Set([...(item.tags || []), ...(item.needs || [])])) usage.set(tag, (usage.get(tag) || 0) + 1);
+  }
+  const tags = [...usage.keys()].sort((a, b) => usage.get(b) - usage.get(a) || a.localeCompare(b));
+  const shown = tagsExpanded ? tags : tags.slice(0, 6);
+  if (filter && !shown.includes(filter)) shown.push(filter);
+  $("#tags").innerHTML = `<button class="tag-filter ${!filter ? "active" : ""}" data-action="filter" data-tag="" aria-pressed="${!filter}">All tags</button>` + shown.map(t =>
+    `<button class="tag-filter ${filter === t ? "active" : ""}" data-action="filter" data-tag="${esc(t)}" aria-pressed="${filter === t}"><span class="tag-dot tone-${tagColor(t)}" aria-hidden="true"></span><span class="tag-label">${esc(t)}</span><span class="count">${usage.get(t)}</span></button>`).join("") +
+    (tags.length > 6 ? `<button id="more-tags" aria-expanded="${tagsExpanded}">${tagsExpanded ? "Show less" : `${tags.length - shown.length} more`}</button>` : "");
+  $("#more-tags")?.addEventListener("click", () => {
+    tagsExpanded = !tagsExpanded;
+    try { localStorage.setItem("gallery-tags-expanded", String(tagsExpanded)); } catch {}
+    renderSidebar();
+  });
 }
 function render() {
+  renderView();
+  const header = $(".page-header", main);
+  if (!header) return;
+  const heading = $("#toolbar-heading"), actions = $("#toolbar-actions");
+  heading.replaceChildren(...header.firstElementChild.childNodes);
+  actions.replaceChildren(...$(".actions", header).childNodes);
+  const back = $(":scope > .back", main);
+  if (back) heading.prepend(back);
+  $("h1", heading)?.setAttribute("data-tauri-drag-region", "");
+  const metadata = $(".badges", heading);
+  if (metadata) {
+    metadata.classList.add("detail-tags");
+    main.prepend(metadata);
+  }
+  header.remove();
+}
+let tagsExpanded = false;
+try { tagsExpanded = localStorage.getItem("gallery-tags-expanded") === "true"; } catch {}
+function tagColor(name) {
+  let hash = 0;
+  for (const char of name) hash = (Math.imul(hash, 31) + char.codePointAt(0)) | 0;
+  return Math.abs(hash) % 6;
+}
+function renderView() {
   if (!library) return;
   renderSidebar();
   if (promptId && !prompt()) promptId = null;
@@ -202,6 +240,7 @@ function render() {
   }
   resultSelection.reset();
   showAllSourcesFor = null;
+  suggestionsExpandedFor = null;
   const isPrompts = view === "prompts";
   const items = (isPrompts ? library.prompts : library.sources).filter((item) => {
     const tags = isPrompts ? [...item.tags, ...item.needs] : item.tags;
@@ -213,7 +252,8 @@ function render() {
     );
   });
   if (!isPrompts) { renderSources(items); return; }
-  main.innerHTML = `<header class="page-header"><div><p class="eyebrow">YOUR LIBRARY</p><h1>${isPrompts ? "Prompts" : "Source photos"}</h1><p>${items.length} ${isPrompts ? "ideas to come back to" : "photos, ready for your next idea"}</p></div><div class="actions">${!isPrompts ? button("paste", "Paste image") : ""}${button(isPrompts ? "new-prompt" : "pick-sources", isPrompts ? "+ New prompt" : "+ Add photos", "primary")}</div></header>${warnings()}${items.length ? `<div class="grid">${items.map((item) => (isPrompts ? promptGrid.card(item) : sourceCard(item))).join("")}</div>` : `<section class="empty"><div class="hero-mark">${isPrompts ? "▤" : "▧"}</div><h2>${query || filter || favorites ? "Nothing matches yet" : isPrompts ? "Your next idea starts here" : "Bring your own inspiration"}</h2><p>${query || filter || favorites ? "Try a different search or clear your filters." : isPrompts ? "Save a prompt, then collect what it creates. You can also paste a block of prompt text here." : "Drop photos here, paste an image, or choose files. Originals are always copied and left untouched."}</p>${button(isPrompts ? "new-prompt" : "pick-sources", isPrompts ? "Create a prompt" : "Choose photos", "primary")}</section>`}`;
+  main.innerHTML = `<header class="page-header"><div><h1>${favorites ? "Favorites" : filter ? esc(filter) : "Prompts"}</h1><span class="toolbar-count">${items.length}</span></div><div class="actions">${!isPrompts ? button("paste", "Paste image") : ""}${button(isPrompts ? "new-prompt" : "pick-sources", isPrompts ? "+ New" : "+ Add photos", "primary")}</div></header>${warnings()}${items.length ? `<div class="grid"></div>` : `<section class="empty"><div class="hero-mark">${isPrompts ? "▤" : "▧"}</div><h2>${query || filter || favorites ? "Nothing matches yet" : isPrompts ? "Your next idea starts here" : "Bring your own inspiration"}</h2><p>${query || filter || favorites ? "Try a different search or clear your filters." : isPrompts ? "Save a prompt, then collect what it creates. You can also paste a block of prompt text here." : "Drop photos here, paste an image, or choose files. Originals are always copied and left untouched."}</p>${button(isPrompts ? "new-prompt" : "pick-sources", isPrompts ? "Create a prompt" : "Choose photos", "primary")}</section>`}`;
+  if (items.length) promptGrid.mount($(".grid", main), items, library.root, library.prompts.map(p => p.id));
   promptGrid.afterRender();
 }
 function renderPrompt() {
@@ -221,8 +261,28 @@ function renderPrompt() {
   resultSelection.begin(p.id, p.results);
   const matches = library.sources.filter((s) => s.tags.some((t) => p.needs.includes(t)));
   const suggestions = showAllSourcesFor === p.id ? library.sources : matches;
-  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.needs.length ? p.needs : ["text-only"])}${badges(p.tags)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<pre class="prompt-text">${esc(p.text)}</pre>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}<section><div class="section-header"><h2>Suggested source photos</h2><small>${suggestions.length} ${showAllSourcesFor === p.id ? "available" : "matching"} ${suggestions.length === 1 ? "photo" : "photos"}</small></div>${p.needs.length ? (suggestions.length ? `<div class="strip">${suggestions.map((s) => sourceCard(s, true)).join("")}</div><small>Click to preview · Drag to ChatGPT · Copy image with ⌘C</small>` : `<p class="muted">No matching photos yet. Add a source photo with one of this prompt’s needs tags.</p>${library.sources.length ? button("show-all-sources", "Show all source photos", "link-button") : ""}`) : '<p class="muted">This is a text-only prompt. No source photo needed.</p>'}</section><section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
+  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.needs.length ? p.needs : ["text-only"])}${badges(p.tags)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<pre class="prompt-text">${esc(p.text)}</pre>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}<section><div class="section-header"><h2>Suggested photos</h2><small>${suggestions.length} ${showAllSourcesFor === p.id ? "available" : "matching"} ${suggestions.length === 1 ? "photo" : "photos"}</small></div>${p.needs.length ? (suggestions.length ? `<div id="suggested-photos" class="strip">${suggestions.map((s) => sourceCard(s, true)).join("")}</div>${button("toggle-suggestions", `Show all ${suggestions.length}`, "link-button", 'id="toggle-suggestions" aria-controls="suggested-photos" aria-expanded="false" hidden')}<small>Click to preview · Drag to ChatGPT · Copy image with ⌘C</small>` : `<p class="muted">No matching photos yet. Add a source photo with one of this prompt’s needs tags.</p>${library.sources.length ? button("show-all-sources", "Show all photos", "link-button") : ""}`) : '<p class="muted">This is a text-only prompt. No source photo needed.</p>'}</section><section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
+  updateSuggestions();
 }
+function updateSuggestions() {
+  const strip = $("#suggested-photos");
+  if (!strip) return;
+  const width = strip.clientWidth || main.clientWidth || Math.max(110, window.innerWidth - 232);
+  const columns = Math.max(1, Math.floor((width + 12) / 122));
+  const limit = columns * 2;
+  const expanded = suggestionsExpandedFor === promptId;
+  [...strip.children].forEach((card, i) => {
+    card.hidden = !expanded && i >= limit;
+    if (!card.hidden) $("img", card)?.setAttribute("loading", "eager");
+  });
+  const toggle = $("#toggle-suggestions");
+  toggle.hidden = strip.children.length <= limit;
+  toggle.textContent = expanded ? "Show less" : `Show all ${strip.children.length}`;
+  toggle.setAttribute("aria-expanded", String(expanded));
+}
+window.addEventListener("resize", updateSuggestions);
+if (window.ResizeObserver) new ResizeObserver(updateSuggestions).observe(main);
+
 let pendingLibraryRefresh = false;
 let refreshInFlight = null;
 async function refresh(external = false) {
@@ -251,8 +311,8 @@ async function flushLibraryRefresh() {
   pendingLibraryRefresh = false;
   try { await refresh(true); } catch (error) { report(error); }
 }
-modal.addEventListener("close", () => { $$("video", modal).forEach((v) => v.pause()); setTimeout(flushLibraryRefresh, 0); });
-lightbox.addEventListener("close", () => { $$("video", lightbox).forEach((v) => v.pause()); setTimeout(flushLibraryRefresh, 0); });
+modal.addEventListener("close", () => { $$("video, audio", modal).forEach((v) => v.pause()); setTimeout(flushLibraryRefresh, 0); });
+lightbox.addEventListener("close", () => { $$("video, audio", lightbox).forEach((v) => v.pause()); setTimeout(flushLibraryRefresh, 0); });
 async function chooseLibrary() {
   if (busy) return;
   const path = await invoke("pick_library_folder");
@@ -283,7 +343,7 @@ function editPrompt(existing = null, text = "") {
   const p = existing;
   showModal(
     p ? "Edit prompt" : "New prompt",
-    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 4, full: true })}<div class="full"><label class="field">Source photos it needs<small>Show source photos tagged with any of these. Leave empty for a text-only prompt.</small></label><div class="needs-row">${tagChecks("needs", p?.needs)}${field("New needs tags", "newNeeds")}</div></div>${field("Style tags, separated by commas", "tags", p?.tags.join(", ") || "")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
+    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 4, full: true })}<div class="full"><label class="field">Photos it needs<small>Show photos tagged with any of these. Leave empty for a text-only prompt.</small></label><div class="needs-row">${tagChecks("needs", p?.needs)}${field("New needs tags", "newNeeds")}</div></div>${field("Style tags, separated by commas", "tags", p?.tags.join(", ") || "")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
     async (form) => {
       const values = new FormData(form),
         meta = {
@@ -313,7 +373,7 @@ function openSource(id) {
   );
   showModal(
     sourceName(s),
-    `<div class="name-editor">${field("Name", "name", sourceName(s))}${s.name?.trim() ? `<small class="muted">Original file: ${esc(stem(s.originalName, s.file || s.originalName))}</small>` : ""}</div>${mediaPreview(s, asset, esc, sourceName(s), "source-preview")}${folderPicker(folderOf(s))}<div class="actions">${button("copy-image", s.kind === "video" ? "Copy video" : "Copy image", "primary", `data-id="${esc(id)}"`)}${button("reveal", "Reveal in Finder", "", `data-id="${esc(id)}"`)}${button("delete-source", "Move to Trash", "danger", `data-id="${esc(id)}"`)}</div><div class="section-header"><h3>Tags</h3></div>${tagChecks("tags", s.tags)}<div class="tag-editor">${field("New tags, separated by commas", "newTags")}</div><div class="tag-editor">${field("Note", "note", s.note, { area: true })}</div><div class="source-uses"><h3>Results that used this photo (${uses.length})</h3>${uses.length ? uses.map(({ p, r }) => button("result", esc(`${p.title} · ${resultName(r, date)}`), "", `data-id="${r.id}" data-pid="${p.id}"`)).join("") : "<small>No linked results yet.</small>"}</div>${footer("Save photo details")}`,
+    `<div class="name-editor">${field("Name", "name", sourceName(s))}${s.name?.trim() ? `<small class="muted">Original file: ${esc(stem(s.originalName, s.file || s.originalName))}</small>` : ""}</div>${mediaPreview(s, asset, esc, sourceName(s), "source-preview")}${folderPicker(folderOf(s))}<div class="actions">${button("copy-image", s.kind === "audio" ? "Copy audio" : s.kind === "video" ? "Copy video" : "Copy image", "primary", `data-id="${esc(id)}"`)}${button("reveal", "Reveal in Finder", "", `data-id="${esc(id)}"`)}${button("delete-source", "Move to Trash", "danger", `data-id="${esc(id)}"`)}</div><div class="section-header"><h3>Tags</h3></div>${tagChecks("tags", s.tags)}<div class="tag-editor">${field("New tags, separated by commas", "newTags")}</div><div class="tag-editor">${field("Note", "note", s.note, { area: true })}</div><div class="source-uses"><h3>Results that used this photo (${uses.length})</h3>${uses.length ? uses.map(({ p, r }) => button("result", esc(`${p.title} · ${resultName(r, date)}`), "", `data-id="${r.id}" data-pid="${p.id}"`)).join("") : "<small>No linked results yet.</small>"}</div>${footer("Save photo details")}`,
     async (form) => {
       await invoke("update_source", {
         id,
@@ -413,7 +473,7 @@ function renderLightbox() {
     return;
   }
   $("#lightbox-content").innerHTML =
-    `<div class="dialog-header"><div class="actions">${button("prev-result", "←", "", `aria-label="Previous result" ${lightIndex === 0 ? "disabled" : ""}`)}<small>${lightIndex + 1} / ${lightItems.length}</small>${button("next-result", "→", "", `aria-label="Next result" ${lightIndex === lightItems.length - 1 ? "disabled" : ""}`)}</div>${button("close-lightbox", "✕", "icon", 'aria-label="Close result"')}</div>${mediaPreview(r, asset, esc, resultName(r, date), "lightbox-image")}<div class="lightbox-footer"><div class="actions"><small>${esc(resultName(r, date))} · ${esc(r.model)}</small><div class="actions">${button("favorite-result", r.favorite ? "★ Favorite" : "☆ Favorite")}${button("copy-result", r.kind === "video" ? "Copy video" : "Copy image")}${button("edit-result", "Edit")}${r.chatUrl ? button("open-url", "Open chat ↗", "primary", `data-url="${esc(r.chatUrl)}"`) : ""}${button("delete-result", "Move to Trash", "danger")}</div></div>${r.note ? `<p>${esc(r.note)}</p>` : ""}<div class="image-sources">${r.sourcePhotos.length ? "<small>Source photos:</small>" : ""}${r.sourcePhotos
+    `<div class="dialog-header"><div class="actions">${button("prev-result", "←", "", `aria-label="Previous result" ${lightIndex === 0 ? "disabled" : ""}`)}<small>${lightIndex + 1} / ${lightItems.length}</small>${button("next-result", "→", "", `aria-label="Next result" ${lightIndex === lightItems.length - 1 ? "disabled" : ""}`)}</div>${button("close-lightbox", "✕", "icon", 'aria-label="Close result"')}</div>${mediaPreview(r, asset, esc, resultName(r, date), "lightbox-image")}<div class="lightbox-footer"><div class="actions"><small>${esc(resultName(r, date))} · ${esc(r.model)}</small><div class="actions">${button("favorite-result", r.favorite ? "★ Favorite" : "☆ Favorite")}${button("copy-result", r.kind === "audio" ? "Copy audio" : r.kind === "video" ? "Copy video" : "Copy image")}${button("edit-result", "Edit")}${r.chatUrl ? button("open-url", "Open chat ↗", "primary", `data-url="${esc(r.chatUrl)}"`) : ""}${button("delete-result", "Move to Trash", "danger")}</div></div>${r.note ? `<p>${esc(r.note)}</p>` : ""}<div class="image-sources">${r.sourcePhotos.length ? "<small>Photos:</small>" : ""}${r.sourcePhotos
       .map((id) => {
         const s = source(id);
         return s
@@ -463,7 +523,7 @@ function setResultSources() {
   if (!p || !items.length) return;
   const shared = items[0].sourcePhotos.filter((id) => items.every((r) => r.sourcePhotos.includes(id)));
   showModal(
-    "Set source photos",
+    "Set photos",
     `<p>Replace the source-photo links on ${items.length} selected results. Choose no photos to clear their links.</p>${photoPicker(p, shared)}${footer("Apply to selected results")}`,
     async (form) => {
       const sourcePhotos = new FormData(form).getAll("sources");
@@ -481,7 +541,7 @@ function setResultSources() {
       }
       closeModal();
       await refresh();
-      toast(`Source photos set for ${items.length} results`);
+      toast(`Photos set for ${items.length} results`);
     },
   );
 }
@@ -554,7 +614,7 @@ async function acceptImport(data, targetPromptId = promptId) {
   }
   if (targetPromptId) await task(() => addResults(data, targetPromptId));
   else if (view === "sources") await importSources(data);
-  else toast("Hover or focus a prompt card to add results, or switch to Source photos");
+  else toast("Hover or focus a prompt card to add results, or switch to Photos");
 }
 async function pickResults(pid = promptId) {
   if (!pid || modal.open || lightbox.open) return;
@@ -645,6 +705,10 @@ const actions = {
     renderPrompt();
   },
   "set-result-sources": () => setResultSources(),
+  "toggle-suggestions": () => {
+    suggestionsExpandedFor = suggestionsExpandedFor === promptId ? null : promptId;
+    updateSuggestions();
+  },
   "show-all-sources": () => {
     showAllSourcesFor = promptId;
     renderPrompt();
@@ -874,7 +938,7 @@ document.addEventListener("contextmenu", (e) => {
   selectedSource = card.dataset.id;
   const menu = $("#context-menu");
   menu.innerHTML =
-    button("copy-image", source(selectedSource)?.kind === "video" ? "Copy video" : "Copy image", "", `data-id="${selectedSource}"`) +
+    button("copy-image", source(selectedSource)?.kind === "audio" ? "Copy audio" : source(selectedSource)?.kind === "video" ? "Copy video" : "Copy image", "", `data-id="${selectedSource}"`) +
     button("reveal", "Reveal in Finder", "", `data-id="${selectedSource}"`) +
     button("source", "Edit tags", "", `data-id="${selectedSource}"`) +
     button("delete-source", "Move to Trash", "danger", `data-id="${selectedSource}"`);
@@ -908,7 +972,7 @@ document.addEventListener("mousedown", (e) => {
     onEvent.onmessage = () => setTimeout(() => (dragging = false), 150);
     invoke("plugin:drag|start_drag", {
       item: isSource && selectedSources.has(s.id) ? library.sources.filter((s) => selectedSources.has(s.id)).map((s) => s.path) : [s.path],
-      image: s.thumbnail || (s.kind === "video" ? new URL("./app-icon.png", location.href).href : s.path),
+      image: s.thumbnail || (["video", "audio"].includes(s.kind) ? new URL("./app-icon.png", location.href).href : s.path),
       options: { mode: "copy" },
       onEvent,
     }).catch((error) => {
@@ -957,11 +1021,11 @@ async function start() {
     const internal = event.payload.paths.map((path) => library?.sources.find((s) => s.path === path)?.id);
     if (target && internal.length && internal.every(Boolean)) { task(() => moveSelected(internal, target.dataset.folderTarget)); return; }
     if (dragging) return;
-    const paths = event.payload.paths.filter((p) => /\.(jpe?g|png|webp|heic|gif|mp4|mov|m4v)$/i.test(p));
+    const paths = event.payload.paths.filter((p) => /\.(jpe?g|png|webp|heic|gif|mp4|mov|m4v|mp3|m4a|aac|wav|aif|aiff|flac)$/i.test(p));
     if (paths.length) {
       if (card) promptGrid.select(card);
       acceptImport({ paths }, card?.dataset.promptId || promptId).catch(report);
-    } else toast("Choose jpg, jpeg, png, webp, heic, or gif images");
+    } else toast("Choose a supported image, video or audio file");
   });
   await task(async () => {
     const config = await invoke("get_config");

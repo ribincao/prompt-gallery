@@ -37,6 +37,7 @@ try {
   await page.getByRole("heading", { name: "Tag your photo", exact: true }).waitFor();
   await page.getByLabel("single", { exact: true }).check();
   await page.getByRole("button", { name: "Save tags", exact: true }).click();
+  if (await page.locator(".folder-card").count()) await page.locator(".folder-card > button").first().click();
   await page.locator(".source-card").click();
   await page.getByLabel("Name", { exact: true }).fill("Kujira in a bucket");
   const formFits = () => {
@@ -52,7 +53,7 @@ try {
   await page.getByLabel("Note", { exact: true }).fill("A reference photo");
   await page.getByRole("button", { name: "Save photo details" }).click();
   await page.locator("#nav-prompts").click();
-  await page.getByRole("button", { name: "+ New prompt" }).click();
+  await page.getByRole("button", { name: "+ New" }).click();
   await page.getByLabel("Title", { exact: true }).fill("Portrait <test>");
   const text = "  Turn the photo into a gentle illustrated portrait.\nKeep the person recognizable.\n";
   await page.getByLabel("Prompt text", { exact: true }).fill(text);
@@ -91,6 +92,7 @@ try {
   assert.equal(await page.locator("[data-action=prompt]").count(), 0);
   await page.locator("#search").fill("");
   await page.locator("#nav-sources").click();
+  if (await page.locator(".folder-card").count()) await page.locator(".folder-card > button").first().click();
   await page.locator(".source-card").click({ button: "right" });
   await page.locator("#context-menu").getByRole("button", { name: "Edit tags" }).click();
   await page.getByRole("button", { name: "Move to Trash", exact: true }).click();
@@ -119,7 +121,7 @@ try {
   await page.evaluate(() => { testState.lib.tags = Array.from({length: 15}, (_, i) => `tag-${i + 1}`); });
   await page.locator("#reload").click();
   await page.locator("#nav-prompts").click();
-  await page.getByRole("button", {name: "+ New prompt", exact: true}).click();
+  await page.getByRole("button", {name: "+ New", exact: true}).click();
   const geometry = () => {
     const modal = document.querySelector("#modal"), form = document.querySelector("#dialog-form");
     const header = document.querySelector(".dialog-heading");
@@ -150,11 +152,11 @@ try {
   await page.keyboard.press("Escape");
   await page.setViewportSize({width: 1200, height: 800});
   await page.emulateMedia({colorScheme: "light"});
-  await page.getByRole("button", {name: "+ New prompt", exact: true}).click();
+  await page.getByRole("button", {name: "+ New", exact: true}).click();
   await page.locator('[name=title]').fill("Enter saves");
   await page.locator('[name=title]').press("Enter");
   await page.locator("#modal").waitFor({state: "hidden"});
-  assert.equal(await page.locator("#main h1").innerText(), "Enter saves");
+  assert.equal(await page.locator("#toolbar h1").innerText(), "Enter saves");
   console.log("PASS: 15-tag prompt fits 1200x800; long text scrolls internally; header stays visible at 800x560; tag list scrolls alone; Enter submits; Escape closes");
   assert.deepEqual(errors, []);
   console.log(

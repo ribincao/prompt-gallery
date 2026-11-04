@@ -283,13 +283,14 @@ fn extension(path: &Path) -> Outcome<String> {
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
-        .ok_or("Image has no extension")?;
+        .ok_or("Media has no extension")?;
     if ![
-        "jpg", "jpeg", "png", "webp", "heic", "gif", "mp4", "mov", "m4v",
+        "jpg", "jpeg", "png", "webp", "heic", "gif", "mp4", "mov", "m4v", "mp3", "m4a", "aac",
+        "wav", "aif", "aiff", "flac",
     ]
     .contains(&ext.to_lowercase().as_str())
     {
-        return Err("Unsupported image format (use jpg, jpeg, png, webp, heic, or gif)".into());
+        return Err("Unsupported media format".into());
     }
     Ok(ext.into())
 }
@@ -365,7 +366,7 @@ fn thumbnail(root: &Path, id: &str, image: &Path) -> Outcome<Option<String>> {
     {
         // Integration-test binaries are built without cfg(test), so they explicitly
         // disable real poster subprocesses through this seam as well.
-        let video = is_video(image);
+        let video = is_streamed_media(image);
         if video
             && (std::env::var_os("PROMPT_GALLERY_DISABLE_POSTERS").is_some()
                 || !claim_poster_attempt(POSTER_ATTEMPTS.get_or_init(Default::default), &target))
@@ -497,7 +498,8 @@ pub fn load_library(root: &Path) -> Outcome<Library> {
         let result = (|| {
             owned_file(root, &p)?;
             let mut s: Source = read(&p)?;
-            if s.kind.as_deref() == Some("video") && s.duration_seconds.is_none() {
+            if matches!(s.kind.as_deref(), Some("video" | "audio")) && s.duration_seconds.is_none()
+            {
                 s.duration_seconds = media_duration(&safe(root, format!("sources/{}", s.file))?);
             }
             valid_id(&s.id)?;
@@ -540,7 +542,9 @@ pub fn load_library(root: &Path) -> Outcome<Library> {
                 let result = (|| {
                     owned_file(root, &r)?;
                     let mut m: ResultMeta = read(&r)?;
-                    if m.kind.as_deref() == Some("video") && m.duration_seconds.is_none() {
+                    if matches!(m.kind.as_deref(), Some("video" | "audio"))
+                        && m.duration_seconds.is_none()
+                    {
                         m.duration_seconds =
                             media_duration(&safe(root, format!("{dir}/{}", m.file))?);
                     }
@@ -1084,11 +1088,24 @@ pub fn is_video(path: &Path) -> bool {
         .and_then(|e| e.to_str())
         .is_some_and(|e| ["mp4", "mov", "m4v"].contains(&e.to_ascii_lowercase().as_str()))
 }
+pub fn is_audio(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        ["mp3", "m4a", "aac", "wav", "aif", "aiff", "flac"]
+            .contains(&e.to_ascii_lowercase().as_str())
+    })
+}
+pub fn is_streamed_media(path: &Path) -> bool {
+    is_video(path) || is_audio(path)
+}
 fn media_kind(file: &str) -> Option<String> {
-    is_video(Path::new(file)).then(|| "video".into())
+    if is_audio(Path::new(file)) {
+        Some("audio".into())
+    } else {
+        is_video(Path::new(file)).then(|| "video".into())
+    }
 }
 fn media_duration(path: &Path) -> Option<f64> {
-    if !is_video(path) {
+    if !is_streamed_media(path) {
         return None;
     }
     let out = std::process::Command::new("/usr/bin/mdls")

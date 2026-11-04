@@ -52,7 +52,7 @@ Options for `add`:
 | `--model TEXT` | Result model; default `agent` |
 | `--note TEXT` | Note on every result |
 
-Source/result paths accept images and MP4/MOV/M4V videos, case-insensitively. Video paste is unavailable.
+Source/result paths accept images, MP4/MOV/M4V videos, and MP3/M4A/AAC/WAV/AIF/AIFF/FLAC audio, case-insensitively. Video and audio paste are unavailable.
 
 Names are extension-free, optional, trimmed, and limited to 200 Unicode characters. Empty names use the
 normal fallback. Fewer names leave remaining paths unnamed; use an empty string to skip
@@ -155,4 +155,13 @@ or durations do not prevent saves, linking, live refresh, Trash or backup.
 ```sh
 pgallery add --library /path/to/library --prompt-file /tmp/prompt.txt --result /tmp/clip.mp4 --source /tmp/reference.mov --source-folder Family --json
 pgallery folders --library /path/to/library --json
+```
+
+Generated audio (TTS, music or sound effects) may be saved with `--result`, and reference
+audio with `--source`. Pass the exact generation prompt and actual model name. Audio uses
+`kind: "audio"`, optional duration and best-effort Quick Look cover art. A missing cover
+does not indicate failure; the UI provides a music-note tile and playback controls.
+
+```sh
+pgallery add --library /path/to/library --prompt-file /tmp/prompt.txt --result /tmp/speech.wav --model tts-model --json
 ```

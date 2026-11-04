@@ -61,6 +61,12 @@ pub fn response(root: Option<&Path>, request: Request<Vec<u8>>) -> Response<Vec<
         "mp4" => "video/mp4",
         "mov" => "video/quicktime",
         "m4v" => "video/x-m4v",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "aac" => "audio/aac",
+        "wav" => "audio/wav",
+        "aif" | "aiff" => "audio/aiff",
+        "flac" => "audio/flac",
         _ => return denied(),
     };
     let Ok(mut file) = fs::File::open(&path) else {
@@ -90,13 +96,14 @@ pub fn response(root: Option<&Path>, request: Request<Vec<u8>>) -> Response<Vec<
                     .unwrap()
             }
         }
-    } else if library::is_video(&path) && len > CHUNK {
+    } else if library::is_streamed_media(&path) && len > CHUNK {
         (0, CHUNK - 1, true)
     } else {
         (0, len.saturating_sub(1), false)
     };
     // Even an explicit huge range must never allocate a full video in memory.
-    let (end, partial) = if library::is_video(&path) && end.saturating_sub(start) >= CHUNK {
+    let (end, partial) = if library::is_streamed_media(&path) && end.saturating_sub(start) >= CHUNK
+    {
         (start + CHUNK - 1, true)
     } else {
         (end, partial)
@@ -210,6 +217,57 @@ mod tests {
         assert_eq!(byte_range("bytes=0-", CHUNK * 3), Some((0, CHUNK - 1)));
     }
     #[test]
+    fn audio_ranges_head_and_bounds() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("audio.MP3");
+        fs::write(&path, b"0123456789").unwrap();
+        for (range, expected, content_range) in [
+            ("bytes=0-2", "012", "bytes 0-2/10"),
+            ("bytes=4-6", "456", "bytes 4-6/10"),
+            ("bytes=-3", "789", "bytes 7-9/10"),
+            ("bytes=7-", "789", "bytes 7-9/10"),
+        ] {
+            let mut request = get(&path);
+            request
+                .headers_mut()
+                .insert("Range", range.parse().unwrap());
+            let r = response(Some(root.path()), request);
+            assert_eq!(r.status(), 206);
+            assert_eq!(r.headers()["Content-Type"], "audio/mpeg");
+            assert_eq!(r.body(), expected.as_bytes());
+            assert_eq!(r.headers()["Content-Range"], content_range);
+            assert_eq!(r.headers()["Content-Length"], "3");
+        }
+        for range in [
+            "bytes=10-",
+            "bytes=4-2",
+            "bytes=-0",
+            "bytes=0-1,3-4",
+            "junk",
+        ] {
+            let mut request = get(&path);
+            request
+                .headers_mut()
+                .insert("Range", range.parse().unwrap());
+            let r = response(Some(root.path()), request);
+            assert_eq!(r.status(), 416);
+            assert_eq!(r.headers()["Content-Range"], "bytes */10");
+        }
+        let mut request = get(&path);
+        *request.method_mut() = tauri::http::Method::HEAD;
+        request
+            .headers_mut()
+            .insert("Range", "bytes=0-2".parse().unwrap());
+        let r = response(Some(root.path()), request);
+        assert_eq!(r.status(), 200);
+        assert!(r.body().is_empty());
+        assert_eq!(r.headers()["Content-Length"], "10");
+        assert_eq!(r.headers()["Accept-Ranges"], "bytes");
+        let outside = tempfile::tempdir().unwrap();
+        assert_eq!(response(Some(outside.path()), get(&path)).status(), 403);
+        assert_eq!(byte_range("bytes=0-", CHUNK * 3), Some((0, CHUNK - 1)));
+    }
+    #[test]
     fn generated_video_temp_library_smoke() {
         let Ok(input) = std::env::var("PGALLERY_TEST_VIDEO") else {
             return;
@@ -217,6 +275,24 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let root = library::open_library(root.path(), false).unwrap();
         let s = library::import_source(&root, Some(Path::new(&input)), None, vec![]).unwrap();
+        let path = root.join("sources").join(s.file);
+        let mut request = get(&path);
+        request
+            .headers_mut()
+            .insert("Range", "bytes=4-15".parse().unwrap());
+        let r = response(Some(&root), request);
+        assert_eq!(r.status(), 206);
+        assert_eq!(r.body(), &fs::read(input).unwrap()[4..16]);
+    }
+    #[test]
+    fn generated_audio_temp_library_smoke() {
+        let Ok(input) = std::env::var("PGALLERY_TEST_AUDIO") else {
+            return;
+        };
+        let root = tempfile::tempdir().unwrap();
+        let root = library::open_library(root.path(), false).unwrap();
+        let s = library::import_source(&root, Some(Path::new(&input)), None, vec![]).unwrap();
+        assert_eq!(s.kind.as_deref(), Some("audio"));
         let path = root.join("sources").join(s.file);
         let mut request = get(&path);
         request

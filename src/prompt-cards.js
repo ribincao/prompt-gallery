@@ -1,8 +1,10 @@
 // Prompt-grid presentation and transient targeting state; no library data is changed here.
-export function createPromptGrid({ main, asset, esc, badges, button }) {
+export function createPromptGrid({ main, asset, esc, badges, button, mediaBadge, audioPlaceholder }) {
   let selected = null;
   let hovered = null;
   let dropCard = null;
+  let cachedRoot = null;
+  const cachedCards = new Map();
   const cards = () => [...main.querySelectorAll(".prompt-card")];
   const find = (id) => cards().find((card) => card.dataset.promptId === id);
   const cardAt = (target) => target?.closest?.(".prompt-card");
@@ -30,7 +32,7 @@ export function createPromptGrid({ main, asset, esc, badges, button }) {
     // A failed thumbnail must not make the grid decode a full-resolution original.
     return result.thumbnail
       ? `<img class="${cls}" src="${asset(result.thumbnail)}" alt="" loading="lazy" decoding="async" draggable="false">`
-      : `<span class="thumbnail-missing ${cls}" aria-hidden="true">Preview unavailable</span>`;
+      : result.kind === "audio" ? `<span class="audio-stack ${cls}">${audioPlaceholder(result, esc)}</span>` : `<span class="thumbnail-missing ${cls}" aria-hidden="true">Preview unavailable</span>`;
   }
   function card(prompt) {
     const results = prompt.results;
@@ -47,7 +49,7 @@ export function createPromptGrid({ main, asset, esc, badges, button }) {
       results.length >= 2
         ? `<span class="result-count" aria-label="${results.length} results">${results.length}</span>`
         : "";
-    return `<article class="card prompt-card ${selected === prompt.id ? "is-selected" : ""}" data-prompt-id="${prompt.id}"><button type="button" class="prompt-card-open" data-action="prompt" data-id="${prompt.id}" aria-label="Open ${esc(prompt.title)}${results.length ? `, ${results.length} result${results.length === 1 ? "" : "s"}` : ""}">${preview}${results[0]?.kind === "video" ? `<span class="video-badge">▶ ${Number.isFinite(results[0].durationSeconds) ? `${Math.floor(results[0].durationSeconds / 60)}:${String(Math.floor(results[0].durationSeconds % 60)).padStart(2, "0")}` : "Video"}</span>` : ""}${count}${prompt.favorite ? '<span class="star">★</span>' : ""}<div class="card-body"><h3>${esc(prompt.title)}</h3><div class="badges">${badges(prompt.needs.length ? prompt.needs : ["text-only"])}</div></div></button>${button("card-pick-results", '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>', "card-add-result", `data-id="${prompt.id}" aria-label="Add result to ${esc(prompt.title)}" title="Add result"`)}</article>`;
+    return `<article class="card prompt-card ${selected === prompt.id ? "is-selected" : ""}" data-prompt-id="${prompt.id}"><button type="button" class="prompt-card-open" data-action="prompt" data-id="${prompt.id}" aria-label="Open ${esc(prompt.title)}${results.length ? `, ${results.length} result${results.length === 1 ? "" : "s"}` : ""}">${preview}${results[0] ? mediaBadge(results[0]) : ""}${count}${prompt.favorite ? '<span class="star">★</span>' : ""}<div class="card-body"><h3>${esc(prompt.title)}</h3><div class="badges">${badges(prompt.needs.length ? prompt.needs : ["text-only"])}</div></div></button>${button("card-pick-results", '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>', "card-add-result", `data-id="${prompt.id}" aria-label="Add result to ${esc(prompt.title)}" title="Add result"`)}</article>`;
   }
   function target() {
     // Only visible cards can receive paste, so filters/navigation cannot leave a stale target.
@@ -58,6 +60,35 @@ export function createPromptGrid({ main, asset, esc, badges, button }) {
       find(selected)?.dataset.promptId ||
       null
     );
+  }
+  function mount(container, prompts, root, allIds) {
+    if (root !== cachedRoot) {
+      cachedCards.clear();
+      cachedRoot = root;
+    }
+    const liveIds = new Set(allIds);
+    for (const id of cachedCards.keys()) if (!liveIds.has(id)) cachedCards.delete(id);
+    const width = main.clientWidth || Math.max(170, window.innerWidth - 200);
+    const columns = Math.max(1, Math.floor((width - 24 + 12) / ((window.innerWidth <= 1100 ? 145 : 170) + 12)));
+    const rows = Math.ceil((main.clientHeight || window.innerHeight) / (width / columns + 56));
+    const fragment = document.createDocumentFragment();
+    prompts.forEach((prompt, index) => {
+      const signature = JSON.stringify(prompt);
+      let cached = cachedCards.get(prompt.id);
+      if (!cached || cached.signature !== signature) {
+        const template = document.createElement("template");
+        template.innerHTML = card(prompt);
+        cached = { signature, node: template.content.firstElementChild };
+        cachedCards.set(prompt.id, cached);
+      }
+      cached.node.classList.toggle("is-selected", selected === prompt.id);
+      for (const img of cached.node.querySelectorAll("img")) {
+        img.setAttribute("loading", index < columns * rows ? "eager" : "lazy");
+        img.setAttribute("decoding", index < columns * rows ? "auto" : "async");
+      }
+      fragment.append(cached.node);
+    });
+    container.replaceChildren(fragment);
   }
   function hitTest(position) {
     if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
@@ -82,5 +113,5 @@ export function createPromptGrid({ main, asset, esc, badges, button }) {
     clearDrop();
     if (!find(selected)) selected = null;
   }
-  return { card, target, hitTest, highlightDrop, clearDrop, afterRender, select };
+  return { card, mount, target, hitTest, highlightDrop, clearDrop, afterRender, select };
 }

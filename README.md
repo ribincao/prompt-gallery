@@ -6,7 +6,7 @@
 
 <p align="center">
   A local Mac app for the AI image prompts you collect, the photos you feed them,<br>
-  and the pictures and videos they make.
+  and the pictures, videos and audio they make.
 </p>
 
 ![Prompts view with stacked result cards](docs/screenshots/prompts.png)
@@ -21,14 +21,14 @@ cat, a landscape, a character sheet.
 Prompt Gallery keeps all three things together and linked:
 
 - **Prompts**: the text, where you found it, and what kind of source photo it needs.
-- **Source photos**: your images and videos, tagged and organized in virtual folders.
-- **Results**: every image or video a prompt produced, with the source photo it used and a link back
+- **Photos**: your images, videos and audio, tagged and organized in virtual folders.
+- **Results**: every image, video or audio file a prompt produced, with the source photo it used and a link back
   to the ChatGPT conversation.
 
-Open a prompt and the matching source photos are right there. Copy the prompt, drag a photo
+Open a prompt and the matching photos are right there. Copy the prompt, drag a photo
 into ChatGPT, and paste the result back in.
 
-![Prompt detail with copy button and suggested source photos](docs/screenshots/prompt-detail.png)
+![Prompt detail with copy button and suggested photos](docs/screenshots/prompt-detail.png)
 
 ### Copy a photo, paste it into ChatGPT
 
@@ -43,7 +43,7 @@ Drag the thumbnail straight into the chat instead.
 
 - **Extension-free names.** Name fields and labels omit the file extension. Saving a matching
   extension strips it; original filenames and files remain untouched.
-- **Virtual source folders.** Open Source photos to see folder covers and counts. Create,
+- **Virtual source folders.** Open Photos to see folder covers and counts. Create,
   rename, or delete folders; deleting a folder puts its items in Unfiled. Select items with
   Select, Cmd-click, or Shift-click and use Move to…. Drag to a folder target or the breadcrumb
   root (Unfiled). Imports inside a folder inherit it. Search and tag filters show matches
@@ -57,14 +57,14 @@ Drag the thumbnail straight into the chat instead.
 - **Prompt grid with stacked results.** Each card shows a prompt's newest results as a little
   pile of photos with a count.
 - **One-click Copy prompt.**
-- **Suggested source photos.** A prompt says what it needs (`single`, `couple`, `group`, `pet`,
+- **Suggested photos.** A prompt says what it needs (`single`, `couple`, `group`, `pet`,
   `landscape`, `character-sheet`, `object`, or your own tags); the app shows photos tagged with
   any of them.
 - **Copy and paste a photo into ChatGPT** with one click (or ⌘C), or drag it straight into the
   chat. No digging for the original file; you always send the original, and nothing is exported.
 - **Add results fast**: paste a copied image with ⌘V, drop files onto a prompt card, or pick
   them. A ChatGPT link on your clipboard is filled in automatically.
-- **Link results to source photos** by clicking thumbnails, one result or many at once.
+- **Link results to photos** by clicking thumbnails, one result or many at once.
 - **Search and filter** by title, prompt text, tags and notes; mark favorites.
 - **Light and dark mode**, following the system.
 
@@ -158,19 +158,19 @@ make clean                   # remove build output
 
 1. **Choose a library folder** on first launch. An empty folder (or a new one) works best.
    Switch later from **Library** at the bottom of the sidebar.
-2. **Add source photos.** Go to *Source photos* and drop, paste or pick images, then tag them
+2. **Add photos.** Go to *Photos* and drop, paste or pick images, then tag them
    by what they show. A photo can have several tags. Open a photo and edit **Name** to rename
    its display label; results have the same field under **Edit**. Names are trimmed and limited
    to 200 characters. Clear the field to restore the original filename stem (sources) or date
    (results). Renaming changes metadata only; files and links keep their IDs.
-3. **Create a prompt** with **+ New prompt** (⌘N). Paste the text, give it a title, and choose
+3. **Create a prompt** with **+ New** (⌘N). Paste the text, give it a title, and choose
    which kinds of photo it needs. Pasting a long block of text into an empty prompt grid starts
    a new prompt for you.
 4. **Try it.** Open the prompt, click **Copy prompt**, and send one of the suggested photos to
    ChatGPT: drag it into the chat, or select it, press ⌘C and paste there.
 5. **Save the results.** Copy the generated image in ChatGPT and press ⌘V in the prompt, or drop
-   the files onto the prompt card. Click the source photos you used and keep the chat link.
-6. **Manage tags.** Click **＋** beside **FILTER BY TAG** to open **Manage tags**. Add a
+   the files onto the prompt card. Click the photos you used and keep the chat link.
+6. **Manage tags.** Click **Edit** beside **Tags** to open **Manage tags**. Add a
    tag, rename it, or remove it from the vocabulary and every photo and prompt. Renaming
    to an existing name merges the tags. Inline confirmations explain removal and merging;
    photos, prompts and results are kept. Each row shows how many photos and prompts use it.
@@ -263,3 +263,14 @@ file for how to run them.
 ## License
 
 [MIT](LICENSE)
+
+### Audio and compact browsing
+
+Import MP3, M4A, AAC, WAV, AIF/AIFF and FLAC as sources or results. Photos contains
+all source media. Audio shows embedded cover art when Quick Look supplies it, otherwise
+a tinted music-note tile. Open it for playback controls; **Copy audio** copies the original
+file URL. Audio paste is not supported. Duration is best-effort via Spotlight.
+
+The integrated title bar holds search and view actions. Sidebar tags are ordered by usage,
+with six shown initially and an expandable remainder; **Edit** opens tag management.
+Square previews, one-line names and muted tags keep the grid compact in light and dark mode.

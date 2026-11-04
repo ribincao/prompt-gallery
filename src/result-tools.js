@@ -14,7 +14,7 @@ export function sourcePhotoPicker({ sources, needs = [], chosen = [], asset, esc
   const options = ordered
     .map(
       (s) =>
-        `<label class="source-option"><input type="checkbox" name="sources" value="${s.id}" ${chosen.includes(s.id) ? "checked" : ""}><span class="source-option-photo">${s.thumbnail ? `<img src="${asset(s.thumbnail)}" alt="" loading="lazy" decoding="async">` : '<span class="muted">No preview</span>'}${mediaBadge(s)}</span><span class="source-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg></span><span class="source-option-name">${esc(sourceName(s))}</span>${matches(s) ? "<small>Matches prompt</small>" : ""}</label>`,
+        `<label class="source-option"><input type="checkbox" name="sources" value="${s.id}" ${chosen.includes(s.id) ? "checked" : ""}><span class="source-option-photo">${s.thumbnail ? `<img src="${asset(s.thumbnail)}" alt="" loading="lazy" decoding="async">` : s.kind === "audio" ? audioPlaceholder(s, esc, sourceName(s)) : '<span class="muted">No preview</span>'}${mediaBadge(s)}</span><span class="source-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg></span><span class="source-option-name">${esc(sourceName(s))}</span>${matches(s) ? "<small>Matches prompt</small>" : ""}</label>`,
     )
     .join("");
   const missing = chosen
@@ -24,7 +24,7 @@ export function sourcePhotoPicker({ sources, needs = [], chosen = [], asset, esc
         `<label class="check missing-source-option"><input type="checkbox" name="sources" value="${esc(id)}" checked>Source photo missing</label>`,
     )
     .join("");
-  return `<fieldset class="source-picker"><legend>Source photos used</legend><p class="muted">Click photos to toggle. ${needs.length ? "Photos tagged with any of the prompt’s needs appear first." : "Choose any source photos used."}</p><div class="source-picker-grid">${options}</div>${!sources.length ? "<small>No source photos in this library.</small>" : ""}${missing}</fieldset>`;
+  return `<fieldset class="source-picker"><legend>Photos used</legend><p class="muted">Click photos to toggle. ${needs.length ? "Photos tagged with any of the prompt’s needs appear first." : "Choose any photos used."}</p><div class="source-picker-grid">${options}</div>${!sources.length ? "<small>No photos in this library.</small>" : ""}${missing}</fieldset>`;
 }
 
 export function createResultSelection({ asset, esc, button, date }) {
@@ -64,7 +64,7 @@ export function createResultSelection({ asset, esc, button, date }) {
     return true;
   }
   function toolbar() {
-    return `${mode ? `<small role="status">${selected.size} selected</small>${button("set-result-sources", "Set source photos…", "", selected.size ? "" : "disabled")}` : ""}${button("select-results", mode ? "Done" : "Select", "", `aria-pressed="${mode}"`)}`;
+    return `${mode ? `<small role="status">${selected.size} selected</small>${button("set-result-sources", "Set photos…", "", selected.size ? "" : "disabled")}` : ""}${button("select-results", mode ? "Done" : "Select", "", `aria-pressed="${mode}"`)}`;
   }
   function toggle() {
     mode = !mode;
@@ -75,14 +75,21 @@ export function createResultSelection({ asset, esc, button, date }) {
 }
 
 export function mediaBadge(r) {
-  if (r.kind !== "video") return "";
+  if (!["video", "audio"].includes(r.kind)) return "";
   const n = r.durationSeconds;
-  const duration = Number.isFinite(n) ? `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2, "0")}` : "Video";
-  return `<span class="video-badge">▶ ${duration}</span>`;
+  const duration = Number.isFinite(n) ? `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2, "0")}` : (r.kind === "audio" ? "Audio" : "Video");
+  return `<span class="video-badge">${r.kind === "audio" ? "♪" : "▶"} ${duration}</span>`;
 }
 export function mediaPoster(r, asset, esc, name = "") {
-  return `${r.thumbnail || r.kind !== "video" ? `<img src="${asset(r.thumbnail || r.path)}" alt="${esc(name)}" draggable="false" loading="lazy">` : '<span class="thumbnail-missing">Preview unavailable</span>'}${mediaBadge(r)}`;
+  return `${r.thumbnail || !["video", "audio"].includes(r.kind) ? `<img src="${asset(r.thumbnail || r.path)}" alt="${esc(name)}" draggable="false" loading="lazy">` : r.kind === "audio" ? audioPlaceholder(r, esc, name) : '<span class="thumbnail-missing">Preview unavailable</span>'}${mediaBadge(r)}`;
 }
 export function mediaPreview(r, asset, esc, name, cls) {
+  if (r.kind === "audio") return `<div class="audio-preview ${cls}">${r.thumbnail ? `<img src="${asset(r.thumbnail)}" alt="${esc(name)}">` : audioPlaceholder(r, esc, name)}<audio controls preload="metadata" src="${asset(r.path)}" aria-label="${esc(name)}"></audio></div>`;
   return r.kind === "video" ? `<video class="${cls}" controls preload="metadata" src="${asset(r.path)}" ${r.thumbnail ? `poster="${asset(r.thumbnail)}"` : ""} aria-label="${esc(name)}"></video>` : `<img class="${cls}" src="${asset(r.path)}" alt="${esc(name)}">`;
+}
+
+export function audioPlaceholder(r, esc, name = "") {
+  let hash = 0;
+  for (const c of (r.name || r.originalName || name || r.file || "Audio")) hash = (Math.imul(hash, 31) + c.codePointAt(0)) | 0;
+  return `<span class="thumbnail-missing audio-placeholder tone-${Math.abs(hash) % 6}" role="img" aria-label="${esc(name || "Audio")}">♪</span>`;
 }
