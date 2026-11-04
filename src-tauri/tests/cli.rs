@@ -238,3 +238,46 @@ fn concurrent_processes_merge_tags_and_prompt_file_is_exact() {
     );
     assert!(lib.prompts.iter().all(|p| p.text == " exact\r\nfile text "));
 }
+
+#[test]
+fn cli_tags_follow_removal_rename_and_explicit_add() {
+    use prompt_gallery_lib::library;
+    let config = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let root = library::open_library(dir.path(), false).unwrap();
+    library::remove_tag(&root, "single").unwrap();
+    library::rename_tag(&root, "couple", "duo").unwrap();
+    let tags = ok(&config, &["tags", "--library", root.to_str().unwrap()]);
+    assert!(!tags
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("single")));
+    assert!(!tags
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("couple")));
+    assert!(tags.as_array().unwrap().contains(&serde_json::json!("duo")));
+    let input = tempdir().unwrap();
+    let image = input.path().join("test.png");
+    fs::write(&image, b"\x89PNG\r\n\x1a\nfake").unwrap();
+    ok(
+        &config,
+        &[
+            "add",
+            "--library",
+            root.to_str().unwrap(),
+            "--prompt-text",
+            "test",
+            "--tags",
+            "x",
+            "--result",
+            image.to_str().unwrap(),
+        ],
+    );
+    let tags = ok(&config, &["tags", "--library", root.to_str().unwrap()]);
+    assert!(tags.as_array().unwrap().contains(&serde_json::json!("x")));
+    assert!(!tags
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("single")));
+}

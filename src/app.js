@@ -82,8 +82,20 @@ async function task(fn) {
 }
 function showModal(title, body, submit) {
   modalSubmit = submit;
+  modal.classList.toggle("tag-manager", title === "Manage tags");
   $("#modal-content").innerHTML =
-    `<div class="dialog-header"><h2>${esc(title)}</h2>${button("close-modal", "✕", "icon", 'aria-label="Close dialog"')}</div><form id="dialog-form">${body}<p id="modal-error" class="inline-error" role="alert"></p></form>`;
+    `<div class="dialog-heading"><div class="dialog-header"><h2>${esc(title)}</h2></div><p id="modal-error" class="inline-error" role="alert"></p></div><form id="dialog-form">${body}</form>`;
+  const actions = $(".form-actions", $("#dialog-form"));
+  if (actions) {
+    $(".dialog-header").append(actions);
+    $("[type=submit]", actions).setAttribute("form", "dialog-form");
+  }
+  const text = $('#dialog-form textarea[name="text"]');
+  if (text) {
+    const grow = () => { text.style.height = "auto"; text.style.height = `${text.scrollHeight}px`; };
+    text.addEventListener("input", grow);
+    requestAnimationFrame(grow);
+  }
   if (!modal.open) modal.showModal();
   requestAnimationFrame(() => $("input:not([type=checkbox]),textarea,button", $("#dialog-form"))?.focus());
 }
@@ -94,7 +106,7 @@ function closeModal() {
 function footer(label = "Save") {
   return `<div class="form-actions">${button("close-modal", "Cancel")}<button class="primary" type="submit">${label}</button></div>`;
 }
-function field(label, name, value = "", { area = false, full = false, required = false, rows = 3, hint = "" } = {}) {
+function field(label, name, value = "", { area = false, full = false, required = false, rows = 2, hint = "" } = {}) {
   return `<label class="field ${full ? "full" : ""}">${esc(label)}${area ? `<textarea name="${name}" rows="${rows}" ${required ? "required" : ""}>${esc(value)}</textarea>` : `<input name="${name}" value="${esc(value)}" ${required ? "required" : ""}>`}${hint ? `<small>${esc(hint)}</small>` : ""}</label>`;
 }
 function tagChecks(name, chosen = []) {
@@ -223,7 +235,7 @@ function editPrompt(existing = null, text = "") {
   const p = existing;
   showModal(
     p ? "Edit prompt" : "New prompt",
-    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 8, full: true })}<div class="full"><label class="field">Source photos it needs<small>Show source photos tagged with any of these. Leave empty for a text-only prompt.</small></label>${tagChecks("needs", p?.needs)}<div class="tag-editor">${field("New needs tags, separated by commas", "newNeeds")}</div></div>${field("Style tags, separated by commas", "tags", p?.tags.join(", ") || "")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
+    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 4, full: true })}<div class="full"><label class="field">Source photos it needs<small>Show source photos tagged with any of these. Leave empty for a text-only prompt.</small></label><div class="needs-row">${tagChecks("needs", p?.needs)}${field("New needs tags", "newNeeds")}</div></div>${field("Style tags, separated by commas", "tags", p?.tags.join(", ") || "")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
     async (form) => {
       const values = new FormData(form),
         meta = {
@@ -628,17 +640,88 @@ $("#favorites").addEventListener("click", () => {
   promptId = null;
   render();
 });
+let tagRows = [];
+let tagEdit = null;
+const tagUse = (row) => `${row.sources} photo${row.sources === 1 ? "" : "s"} · ${row.prompts} prompt${row.prompts === 1 ? "" : "s"}`;
+async function manageTags() {
+  tagRows = await invoke("tag_usage");
+  tagEdit = null;
+  showModal("Manage tags", `<div class="add-tag">${field("Add tag", "newTag")}<button type="submit" class="primary">Add</button></div><div id="tag-list" aria-label="Tags"></div>`, async (form) => {
+    if (tagEdit) return;
+    const tag = form.elements.newTag.value.trim();
+    if (!tag) throw new Error("Enter a tag name.");
+    await changeTag("set_tags", { tags: [tag] });
+  });
+  $(".dialog-header").insertAdjacentHTML("beforeend", button("close-modal", "Done"));
+  renderTagRows();
+}
+function renderTagRows() {
+  $("#tag-list").innerHTML = tagRows.map((row, index) => {
+    const editing = tagEdit?.tag === row.tag;
+    let controls = `<span class="tag-name">${esc(row.tag)}</span><small>${tagUse(row)}</small><div class="actions"><button type="button" data-tag-op="rename" data-index="${index}">Rename</button><button type="button" data-tag-op="remove" data-index="${index}" class="danger">Remove</button></div>`;
+    if (editing) {
+      controls = tagEdit.mode === "rename"
+        ? `<label class="field">Rename ${esc(row.tag)}<input id="rename-tag" value="${esc(tagEdit.to ?? row.tag)}" aria-label="New tag name"></label><p class="tag-confirm" aria-live="polite"></p><div class="actions"><button type="button" data-tag-op="confirm" data-index="${index}" class="primary">Save</button><button type="button" data-tag-op="cancel">Cancel</button></div>`
+        : `<p>Remove '${esc(row.tag)}' from ${row.sources} photos and ${row.prompts} prompts? Photos and prompts are kept.</p><div class="actions"><button type="button" class="danger" data-tag-op="confirm" data-index="${index}">Remove</button><button type="button" data-tag-op="cancel">Cancel</button></div>`;
+    }
+    return `<div class="tag-row ${editing ? "editing" : ""}">${controls}</div>`;
+  }).join("");
+  if (tagEdit?.mode === "rename") {
+    const input = $("#rename-tag");
+    input.addEventListener("input", () => {
+      tagEdit.to = input.value.trim();
+      tagEdit.confirmedMerge = false;
+      const merge = tagRows.some((r) => r.tag === tagEdit.to && r.tag !== tagEdit.tag);
+      $(".tag-confirm").textContent = merge ? `This will merge '${tagEdit.tag}' into '${tagEdit.to}' on all photos and prompts.` : "Rename on all photos and prompts.";
+    });
+    input.dispatchEvent(new Event("input"));
+    input.focus();
+    input.select();
+  }
+}
+async function changeTag(command, args) {
+  try {
+    const result = await invoke(command, args);
+    if (filter === (args.tag ?? args.from)) filter = args.to || "";
+    await refresh();
+    await manageTags();
+    if (result) {
+      const message = `Updated ${result.sources} photos and ${result.prompts} prompts.`;
+      $("#modal-error").textContent = [message, ...(result.warnings || [])].join(" ");
+    }
+  } catch (error) {
+    // An atomic write can fail after earlier records have changed. Refresh both
+    // views even on failure, but preserve the backend's partial-progress error.
+    await refresh();
+    await manageTags();
+    throw error;
+  }
+}
+$("#modal-content").addEventListener("click", (e) => {
+  const el = e.target.closest("[data-tag-op]");
+  if (!el || busy) return;
+  const row = tagRows[Number(el.dataset.index)];
+  if (el.dataset.tagOp === "cancel") { tagEdit = null; renderTagRows(); return; }
+  if (el.dataset.tagOp !== "confirm") {
+    tagEdit = { tag: row.tag, mode: el.dataset.tagOp };
+    renderTagRows();
+    return;
+  }
+  task(async () => {
+    if (tagEdit.mode === "remove") return changeTag("remove_tag", { tag: row.tag });
+    const to = $("#rename-tag").value.trim();
+    if (!to) throw new Error("Tag names cannot be empty.");
+    const merge = tagRows.some((r) => r.tag === to && r.tag !== row.tag);
+    if (merge && !tagEdit.confirmedMerge) {
+      tagEdit.confirmedMerge = true;
+      el.textContent = "Confirm merge";
+      return;
+    }
+    await changeTag("rename_tag", { from: row.tag, to });
+  });
+});
 $("#manage-tags").addEventListener("click", () => {
-  if (!library) return;
-  showModal(
-    "Tag vocabulary",
-    `${field("Tags, separated by commas", "tags", library.tags.join(", "), { area: true, rows: 4, hint: "Shared by source photos and prompt needs. New tags are merged into the vocabulary; existing tags are retained." })}${footer()}`,
-    async (form) => {
-      await invoke("set_tags", { tags: split(form.elements.tags.value) });
-      closeModal();
-      await refresh();
-    },
-  );
+  if (library) task(manageTags);
 });
 document.addEventListener("paste", (e) => {
   if (busy || e.target.closest("input,textarea,[contenteditable]")) return;
@@ -672,6 +755,15 @@ document.addEventListener("copy", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   const editing = !!e.target.closest("input,textarea,[contenteditable]");
+  if (modal.open && e.key === "Enter" && !e.isComposing &&
+      ((e.metaKey || e.ctrlKey) || e.target.matches("input:not([type=checkbox])"))) {
+    e.preventDefault();
+    if (busy) return;
+    const inline = e.target.closest(".tag-row")?.querySelector('[data-tag-op="confirm"]');
+    if (inline) inline.click();
+    else $("#dialog-form").requestSubmit();
+    return;
+  }
   if (e.key === "Escape") {
     $("#context-menu").hidden = true;
     return;

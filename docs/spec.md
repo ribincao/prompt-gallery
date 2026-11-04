@@ -93,7 +93,7 @@ Sortable by date, readable in Finder, collision-safe for one person.
 ```
 
 - `needs` and source `tags` share one vocabulary. Built-in tags: `single`, `couple`,
-  `group`, `pet`, `landscape`, `character-sheet`, `object`. Users can add their own; the
+  `group`, `pet`, `landscape`, `character-sheet`, `object`. Users can add, remove, rename or merge their own tags; the
   full list is stored in `library.json` under `tags`.
 - A prompt with `needs: []` is text-only (no source photo).
 - If a result references a source photo that was deleted, the result still shows, with
@@ -226,6 +226,40 @@ crate is needed. Grids show thumbnails; the lightbox shows the original.
   asset-scope responder so first choice and library switches require no process restart.
   Automatic scope grants from file drops cannot bypass the current-root check.
 
+### Tag management and form dialogs
+
+The sidebar **Manage tags** button opens a compact list with an Add tag field, usage
+counts, Rename and Remove. Counts include tags found only in metadata; each prompt counts
+once even when both `needs` and `tags` contain the name. Counting does not require intact
+images, prompt text or results and does not populate the vocabulary.
+
+Remove strips the name from `library.json.tags`, source `tags`, and prompt `needs`/`tags`.
+Rename replaces it in all those fields; an existing destination merges with stable
+per-field deduplication. Empty names are rejected. Metadata fields and media stay intact.
+The dialog confirms removal inline and requires a second confirmation before merging.
+After mutations it refreshes usage and the library, clears a removed active filter, and
+follows a renamed filter. An orphan tag can be managed even if absent from the vocabulary.
+
+`tag_usage`, `remove_tag`, and `rename_tag` acquire `TagLock`. Mutations write records
+atomically, then save the vocabulary last; they return photo/prompt counts and skipped-file
+warnings. The lock lease is renewed during scanning and between writes. A failed write stops the operation and
+reports earlier completed records; it does not roll them back. A directory-sync failure
+can occur after the failed record's rename, so the error also explains that uncertainty.
+Unreadable or unsafe metadata is skipped with a warning, like the loader. Existing record
+writers are not globally serialized by this lock; do not run concurrent record edits/imports
+while managing tags. Loading never reconstructs the vocabulary from records. `set_tags`
+remains additive, and CLI adds only explicitly supplied tags to it.
+
+Form dialogs keep Cancel and the primary submit action in a fixed header. Errors are
+visible below the title, outside the form's scroll area. Enter in single-line inputs and
+Cmd+Enter submit; Esc cancels. The prompt textarea starts at four rows and grows to about
+12, then scrolls internally. Needs and their compact add field share a row; style tags and
+source URL share a row; notes use two rows. Source previews and result-photo pickers are
+shorter. At small window sizes only the body scrolls, leaving actions visible; the tag
+manager scrolls its list. Light and dark mode retain the system-blue Photos-neutral style.
+The layout target is a new prompt with about 15 tags fitting at 1200×800; the browser smoke
+test checks that target and header visibility at 800×560.
+
 ### Backend commands (Rust)
 
 | Command | Does |
@@ -241,7 +275,10 @@ crate is needed. Grids show thumbnails; the lightbox shows the original.
 | `update_result(promptId, id, …)` | Edit result metadata |
 | `trash_item(kind, id[, promptId])` | Move files to the macOS Trash |
 | `reveal_in_finder(path)` | Show a file in Finder |
-| `set_tags(tags)` | Save the tag vocabulary |
+| `set_tags(tags)` | Add names to the tag vocabulary |
+| `tag_usage` | Count photos/prompts per tag, including names absent from vocabulary |
+| `remove_tag(tag)` | Strip the tag everywhere; return changed-record counts and warnings |
+| `rename_tag(from, to)` | Rename or merge everywhere; return changed-record counts and warnings |
 
 Plugins and crates: `tauri-plugin-dialog`, `tauri-plugin-opener`, `tauri-plugin-drag`,
 `trash`, `serde`/`serde_json`, `chrono`, `rand`; `tempfile` for tests.

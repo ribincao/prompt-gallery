@@ -102,8 +102,22 @@ export function installMockBridge() {
             );
             return;
           case "set_tags":
-            lib.tags = args.tags;
+            lib.tags = [...new Set([...lib.tags, ...args.tags])];
             return;
+          case "tag_usage":
+            return [...new Set([...lib.tags, ...lib.sources.flatMap(s => s.tags), ...lib.prompts.flatMap(p => [...p.needs, ...p.tags])])].sort().map(tag => ({tag, sources: lib.sources.filter(s => s.tags.includes(tag)).length, prompts: lib.prompts.filter(p => p.needs.includes(tag) || p.tags.includes(tag)).length}));
+          case "remove_tag":
+          case "rename_tag": {
+            if (window.testState.tagError) throw new Error(window.testState.tagError);
+            const from = args.tag ?? args.from;
+            const replace = tags => [...new Set(tags.flatMap(t => t === from ? (args.to ? [args.to] : []) : [t]))];
+            const sources = lib.sources.filter(s => s.tags.includes(from)).length;
+            const prompts = lib.prompts.filter(p => p.needs.includes(from) || p.tags.includes(from)).length;
+            lib.tags = replace(lib.tags);
+            lib.sources.forEach(s => s.tags = replace(s.tags));
+            lib.prompts.forEach(p => { p.needs = replace(p.needs); p.tags = replace(p.tags); });
+            return {sources, prompts, warnings: []};
+          }
           case "trash_item":
             if (args.kind === "source") lib.sources = lib.sources.filter((s) => s.id !== args.id);
             else if (args.kind === "prompt") lib.prompts = lib.prompts.filter((p) => p.id !== args.id);

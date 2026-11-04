@@ -71,7 +71,12 @@ use an exclusive `.prompt-gallery.lock`, created with `create_new`, retrying for
 five seconds. Locks older than 30 seconds are reclaimed. A scope guard removes its own lock
 on normal return or error; crashes rely on stale recovery. Under the lock, `library.json`
 is reread and tags are merged, so old app snapshots cannot discard new agent tags.
-Vocabulary editing is consequently additive. The lock covers vocabulary writes only;
+`set_tags` is additive; explicit tag-manager remove/rename operations hold the same lock
+while updating source/prompt metadata and then the vocabulary. They return changed-record
+counts and warnings, or stop with partial-progress details on a write failure. Library loads
+never repopulate missing vocabulary entries. CLI vocabulary additions use caller-supplied
+tags only; updating a matched prompt does not re-add unchanged existing needs tags.
+The lock does not cover all other record writes;
 simultaneous prompt matching/imports are not a global transaction and can create duplicate
 prompts. Do not run multiple saves of the same batch concurrently.
 

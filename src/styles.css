@@ -980,3 +980,58 @@ a {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+/* Form dialogs keep their title, actions and errors outside the scrolling body. */
+#modal {
+  padding: 0;
+  overflow: hidden;
+  max-height: calc(100dvh - 32px);
+}
+#modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 34px);
+}
+.dialog-heading {
+  flex: none;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  z-index: 1;
+}
+#modal .dialog-header { margin: 0; gap: 12px; }
+#modal .dialog-header h2 { font-size: 18px; overflow-wrap: anywhere; }
+#modal .form-actions { margin: 0; flex-shrink: 0; }
+#modal-error { margin: 8px 0 0; max-height: 80px; overflow: auto; }
+#modal-error:empty { display: none; }
+#dialog-form { padding: 16px 20px 20px; overflow-y: auto; min-height: 0; }
+#modal .form-grid { gap: 12px; }
+#modal label.field { gap: 5px; }
+#modal .checks { gap: 6px; }
+#modal .check { padding: 4px 8px; }
+#modal textarea[name="text"] { min-height: 96px; max-height: 272px; overflow-y: auto; }
+.needs-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 6px; }
+.needs-row .checks { flex: 1; }
+.needs-row > .field { width: 150px; flex: none; }
+#modal .tag-editor { margin-top: 10px; }
+#modal .source-preview { max-height: 170px; margin-bottom: 8px; }
+#modal .source-uses { margin-top: 12px; }
+#modal .source-picker-grid { max-height: 180px; overflow-y: auto; }
+.add-tag { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 12px; }
+.add-tag .field { flex: 1; }
+#tag-list { max-height: 48dvh; overflow-y: auto; }
+.tag-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+.tag-name { flex: 1; overflow-wrap: anywhere; min-width: 0; }
+.tag-row small { white-space: nowrap; }
+.tag-row.editing { flex-wrap: wrap; }
+.tag-row.editing > .field, .tag-row.editing > p { flex-basis: 100%; margin: 0; }
+@media (max-width: 560px) {
+  #modal .dialog-header { flex-wrap: wrap; }
+  #modal .form-grid { grid-template-columns: 1fr; }
+  .needs-row { flex-direction: column; }
+  .needs-row > .field { width: 100%; }
+  .tag-row { flex-wrap: wrap; }
+}
+#modal.tag-manager #dialog-form { display: flex; flex-direction: column; overflow: hidden; }
+#modal.tag-manager .add-tag { flex: none; }
+#modal.tag-manager #tag-list { min-height: 0; flex: 1 1 auto; }

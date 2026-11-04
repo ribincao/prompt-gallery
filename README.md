@@ -125,17 +125,31 @@ make clean                   # remove build output
    ChatGPT: drag it into the chat, or select it, press ⌘C and paste there.
 5. **Save the results.** Copy the generated image in ChatGPT and press ⌘V in the prompt, or drop
    the files onto the prompt card. Click the source photos you used and keep the chat link.
-6. **Come back later.** Search, filter by tag, open a result full size, and use **Open chat** to
+6. **Manage tags.** Click **＋** beside **FILTER BY TAG** to open **Manage tags**. Add a
+   tag, rename it, or remove it from the vocabulary and every photo and prompt. Renaming
+   to an existing name merges the tags. Inline confirmations explain removal and merging;
+   photos, prompts and results are kept. Each row shows how many photos and prompts use it.
+7. **Come back later.** Search, filter by tag, open a result full size, and use **Open chat** to
    jump back into the conversation.
 
 | Shortcut | Does |
 |---|---|
 | ⌘N | New prompt |
+| ⌘Enter | Submit the open form |
 | ⌘F | Search |
 | ⌘V | Paste an image into the current view |
 | ⌘C | Copy the selected source photo |
 | ← → | Step through results in the full-size view |
 | Esc | Close a dialog or the full-size view |
+
+Form dialogs keep **Cancel** and the primary action beside the title, with errors just
+below. Enter in a single-line field submits; Esc cancels. Long content scrolls beneath the
+header; long prompt text and tag-manager lists have their own scroll area.
+
+Tag operations save each changed record atomically, but the whole operation is not a
+transaction. If a write fails, the app reports how many records were already updated and
+refreshes the library. Unreadable records are skipped with warnings; repair them before
+retrying if you need those records included.
 
 ## Use it from an AI agent
 

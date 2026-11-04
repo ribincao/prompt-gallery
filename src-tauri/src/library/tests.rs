@@ -291,3 +291,185 @@ fn tag_lock_released_on_error() {
         "corrupt"
     );
 }
+
+fn tag_fixture(root: &Path) -> (Source, String) {
+    let source = import_source(
+        root,
+        None,
+        Some(b"\x89PNG\r\n\x1a\nfake"),
+        vec!["old".into(), "target".into()],
+    )
+    .unwrap();
+    let prompt = create_prompt(
+        root,
+        PromptInput {
+            title: "Tagged".into(),
+            needs: vec!["old".into(), "target".into()],
+            tags: vec!["old".into(), "target".into(), "orphan".into()],
+            ..Default::default()
+        },
+        "exact text".into(),
+    )
+    .unwrap();
+    (source, prompt)
+}
+#[test]
+fn remove_tag_strips_all_fields_and_stays_removed_on_load() {
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    let (s, p) = tag_fixture(&root);
+    let result_id = add_result(
+        &root,
+        &p,
+        None,
+        Some(b"\x89PNG\r\n\x1a\nfake"),
+        ResultInput::default(),
+    )
+    .unwrap();
+    let result = remove_tag(&root, "old").unwrap();
+    assert_eq!((result.sources, result.prompts), (1, 1));
+    let lib = load_library(&root).unwrap();
+    assert!(!lib.tags.contains(&"old".into()));
+    assert_eq!(lib.sources[0].meta.tags, vec!["target"]);
+    assert_eq!(lib.prompts[0].meta.fields.needs, vec!["target"]);
+    assert_eq!(lib.prompts[0].meta.fields.tags, vec!["target", "orphan"]);
+    assert_eq!(lib.prompts[0].results[0].meta.id, result_id);
+    assert!(root.join(format!("sources/{}", s.file)).exists());
+    assert_eq!(
+        fs::read_to_string(root.join(format!("prompts/{p}/prompt.md"))).unwrap(),
+        "exact text"
+    );
+    assert_eq!(remove_tag(&root, "old").unwrap().prompts, 0);
+}
+#[test]
+fn rename_tag_replaces_everywhere_and_rejects_empty_names() {
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    tag_fixture(&root);
+    let change = rename_tag(&root, "old", " new ").unwrap();
+    assert_eq!((change.sources, change.prompts), (1, 1));
+    let lib = load_library(&root).unwrap();
+    assert!(lib.tags.contains(&"new".into()));
+    assert!(!lib.tags.contains(&"old".into()));
+    assert_eq!(lib.sources[0].meta.tags, vec!["new", "target"]);
+    assert_eq!(lib.prompts[0].meta.fields.needs, vec!["new", "target"]);
+    assert_eq!(
+        lib.prompts[0].meta.fields.tags,
+        vec!["new", "target", "orphan"]
+    );
+    assert!(rename_tag(&root, "new", "  ").is_err());
+    assert!(rename_tag(&root, "", "new").is_err());
+}
+#[test]
+fn merge_tag_deduplicates_and_preserves_order() {
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    tag_fixture(&root);
+    rename_tag(&root, "old", "target").unwrap();
+    let lib = load_library(&root).unwrap();
+    assert_eq!(lib.tags.iter().filter(|t| *t == "target").count(), 1);
+    assert_eq!(lib.sources[0].meta.tags, vec!["target"]);
+    assert_eq!(lib.prompts[0].meta.fields.needs, vec!["target"]);
+    assert_eq!(lib.prompts[0].meta.fields.tags, vec!["target", "orphan"]);
+}
+#[test]
+fn tag_counts_include_orphans_and_count_prompt_once_without_loading_media() {
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    let (_, p) = tag_fixture(&root);
+    fs::remove_file(root.join(format!("prompts/{p}/prompt.md"))).unwrap();
+    let counts = tag_usage(&root).unwrap();
+    let old = counts.iter().find(|r| r.tag == "old").unwrap();
+    assert_eq!((old.sources, old.prompts), (1, 1));
+    assert_eq!(
+        counts.iter().find(|r| r.tag == "orphan").unwrap().prompts,
+        1
+    );
+    assert_eq!(
+        counts.iter().find(|r| r.tag == "single").unwrap().prompts,
+        0
+    );
+    assert!(!marker(&root).unwrap().tags.contains(&"orphan".into()));
+    rename_tag(&root, "orphan", "rescued").unwrap();
+    assert!(marker(&root).unwrap().tags.contains(&"rescued".into()));
+}
+#[test]
+fn tag_operations_wait_for_lock() {
+    for op in 0..3 {
+        let d = tempdir().unwrap();
+        let root = open_library(d.path(), false).unwrap();
+        let lock = TagLock::acquire(&root).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let thread_root = root.clone();
+        let thread = std::thread::spawn(move || {
+            match op {
+                0 => {
+                    tag_usage(&thread_root).unwrap();
+                }
+                1 => {
+                    remove_tag(&thread_root, "single").unwrap();
+                }
+                _ => {
+                    rename_tag(&thread_root, "single", "solo").unwrap();
+                }
+            }
+            tx.send(()).unwrap();
+        });
+        assert!(rx
+            .recv_timeout(std::time::Duration::from_millis(100))
+            .is_err());
+        drop(lock);
+        rx.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
+        thread.join().unwrap();
+        assert!(!root.join(".prompt-gallery.lock").exists());
+    }
+}
+#[test]
+fn tag_mutation_reports_skips_and_preserves_corrupt_records() {
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    tag_fixture(&root);
+    let corrupt = root.join("sources/20261104-120000-abcd.json");
+    fs::write(&corrupt, "{broken").unwrap();
+    let change = remove_tag(&root, "old").unwrap();
+    assert_eq!(change.warnings.len(), 1);
+    assert!(change.warnings[0].contains("Skipped"));
+    assert_eq!(fs::read_to_string(corrupt).unwrap(), "{broken");
+}
+#[test]
+#[cfg(unix)]
+fn tag_mutation_stops_with_partial_count_on_write_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    let (_, p) = tag_fixture(&root);
+    let folder = root.join(format!("prompts/{p}"));
+    let original = fs::metadata(&folder).unwrap().permissions();
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o555)).unwrap();
+    let result = remove_tag(&root, "old");
+    fs::set_permissions(&folder, original).unwrap();
+    let error = result.unwrap_err();
+    assert!(
+        error.contains("1 records already updated (1 photos, 0 prompts)"),
+        "{error}"
+    );
+    let lib = load_library(&root).unwrap();
+    assert!(!lib.sources[0].meta.tags.contains(&"old".into()));
+    assert!(lib.prompts[0].meta.fields.needs.contains(&"old".into()));
+    assert!(lib.tags.contains(&"old".into()));
+    assert!(!root.join(".prompt-gallery.lock").exists());
+    assert_eq!(remove_tag(&root, "old").unwrap().prompts, 1);
+}
+#[test]
+fn prompt_update_does_not_restore_missing_existing_needs_to_vocabulary() {
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    let p = create_prompt(&root, meta(), "text".into()).unwrap();
+    let mut marker = marker(&root).unwrap();
+    marker.tags.retain(|t| t != "single");
+    write_json(&root.join("library.json"), &marker).unwrap();
+    let mut input = meta();
+    input.tags.push("x".into());
+    update_prompt(&root, &p, input, "text".into()).unwrap();
+    assert!(!load_library(&root).unwrap().tags.contains(&"single".into()));
+}

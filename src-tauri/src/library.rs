@@ -447,6 +447,194 @@ pub fn set_tags(root: &Path, tags: Vec<String>) -> Outcome<()> {
     m.tags.dedup();
     write_json(&safe(root, "library.json")?, &m)
 }
+#[derive(Debug, Serialize)]
+pub struct TagUsage {
+    pub tag: String,
+    pub sources: usize,
+    pub prompts: usize,
+}
+#[derive(Debug, Default, Serialize)]
+pub struct TagChange {
+    pub sources: usize,
+    pub prompts: usize,
+    pub warnings: Vec<String>,
+}
+// Read metadata independently of images, prompt text and results: missing media must
+// not prevent a tag from being counted or removed. Keep the loader's path/ID guards.
+fn tag_records(
+    root: &Path,
+    warnings: &mut Vec<String>,
+    lock: &TagLock,
+) -> Outcome<Vec<(PathBuf, serde_json::Value, bool)>> {
+    let mut records = vec![];
+    for (dir, is_prompt) in [("sources", false), ("prompts", true)] {
+        let mut paths = entries(root, dir, warnings);
+        paths.sort();
+        for entry in paths {
+            lock.renew()?;
+            if !is_prompt && entry.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            let path = if is_prompt {
+                entry.join("meta.json")
+            } else {
+                entry
+            };
+            let result: Outcome<serde_json::Value> = (|| {
+                owned_file(root, &path)?;
+                let value: serde_json::Value = read(&path)?;
+                let id = if is_prompt {
+                    let meta: PromptMeta = serde_json::from_value(value.clone()).map_err(err)?;
+                    meta.id
+                } else {
+                    let meta: Source = serde_json::from_value(value.clone()).map_err(err)?;
+                    meta.id
+                };
+                valid_id(&id)?;
+                let name = if is_prompt {
+                    path.parent().and_then(Path::file_name)
+                } else {
+                    path.file_stem()
+                };
+                if name.and_then(|s| s.to_str()) != Some(&id) {
+                    return Err("Record ID does not match path".into());
+                }
+                Ok(value)
+            })();
+            match result {
+                Ok(value) => records.push((path, value, is_prompt)),
+                Err(e) => warnings.push(format!("Skipped {}: {e}", path.display())),
+            }
+        }
+    }
+    Ok(records)
+}
+pub fn tag_usage(root: &Path) -> Outcome<Vec<TagUsage>> {
+    let lock = TagLock::acquire(root)?;
+    let mut counts = std::collections::BTreeMap::<String, (usize, usize)>::new();
+    for tag in marker(root)?.tags {
+        counts.entry(tag).or_default();
+    }
+    let mut warnings = vec![];
+    for (_, value, is_prompt) in tag_records(root, &mut warnings, &lock)? {
+        lock.renew()?;
+        let mut seen = std::collections::HashSet::new();
+        for field in if is_prompt {
+            &["needs", "tags"][..]
+        } else {
+            &["tags"][..]
+        } {
+            for tag in value[field].as_array().unwrap() {
+                let tag = tag.as_str().unwrap();
+                if seen.insert(tag) {
+                    let count = counts.entry(tag.into()).or_default();
+                    if is_prompt {
+                        count.1 += 1;
+                    } else {
+                        count.0 += 1;
+                    }
+                }
+            }
+        }
+    }
+    for warning in warnings {
+        eprintln!("{warning}");
+    }
+    Ok(counts
+        .into_iter()
+        .map(|(tag, (sources, prompts))| TagUsage {
+            tag,
+            sources,
+            prompts,
+        })
+        .collect())
+}
+fn replace_tag(tags: &mut Vec<String>, from: &str, to: Option<&str>) {
+    let mut seen = std::collections::HashSet::new();
+    *tags = tags
+        .iter()
+        .filter_map(|tag| {
+            let tag = if tag == from { to? } else { tag.as_str() };
+            seen.insert(tag.to_string()).then(|| tag.to_string())
+        })
+        .collect();
+}
+pub fn remove_tag(root: &Path, tag: &str) -> Outcome<TagChange> {
+    change_tag(root, tag, None)
+}
+pub fn rename_tag(root: &Path, from: &str, to: &str) -> Outcome<TagChange> {
+    let to = to.trim();
+    if to.is_empty() {
+        return Err("Tag names cannot be empty".into());
+    }
+    change_tag(root, from, Some(to))
+}
+fn change_tag(root: &Path, from: &str, to: Option<&str>) -> Outcome<TagChange> {
+    if from.trim().is_empty() {
+        return Err("Tag names cannot be empty".into());
+    }
+    let lock = TagLock::acquire(root)?;
+    let mut meta = marker(root)?;
+    let mut change = TagChange::default();
+    let records = tag_records(root, &mut change.warnings, &lock)
+        .map_err(|e| tag_change_error(&change, root, &e))?;
+    let mut found = meta.tags.iter().any(|t| t == from);
+    for (path, mut value, is_prompt) in records {
+        lock.renew()
+            .map_err(|e| tag_change_error(&change, &path, &e))?;
+        let mut changed = false;
+        for field in if is_prompt {
+            &["needs", "tags"][..]
+        } else {
+            &["tags"][..]
+        } {
+            let old: Vec<String> = serde_json::from_value(value[field].clone()).map_err(err)?;
+            if !old.iter().any(|t| t == from) {
+                continue;
+            }
+            found = true;
+            let mut tags = old.clone();
+            replace_tag(&mut tags, from, to);
+            if tags != old {
+                value[field] = serde_json::json!(tags);
+                changed = true;
+            }
+        }
+        if !changed {
+            continue;
+        }
+        if is_prompt {
+            value["updatedAt"] = serde_json::json!(now());
+        }
+        write_json(&path, &value).map_err(|e| tag_change_error(&change, &path, &e))?;
+        if is_prompt {
+            change.prompts += 1;
+        } else {
+            change.sources += 1;
+        }
+    }
+    let old = meta.tags.clone();
+    replace_tag(&mut meta.tags, from, to);
+    if found {
+        if let Some(to) = to {
+            if !meta.tags.iter().any(|t| t == to) {
+                meta.tags.push(to.into());
+            }
+        }
+    }
+    if meta.tags != old {
+        lock.renew()
+            .map_err(|e| tag_change_error(&change, root, &e))?;
+        let path = safe(root, "library.json").map_err(|e| tag_change_error(&change, root, &e))?;
+        write_json(&path, &meta).map_err(|e| tag_change_error(&change, &path, &e))?;
+    }
+    Ok(change)
+}
+fn tag_change_error(change: &TagChange, path: &Path, error: &str) -> String {
+    format!("Stopped at {}: {error}. {} records already updated ({} photos, {} prompts); reload before retrying. The failed write may have reached disk if directory sync failed. Warnings: {}",
+        path.display(), change.sources + change.prompts, change.sources, change.prompts, change.warnings.join("; "))
+}
+
 fn add_tags(root: &Path, tags: &[String]) -> Outcome<()> {
     set_tags(root, tags.to_vec())
 }
@@ -548,6 +736,12 @@ pub fn update_prompt(root: &Path, id: &str, meta: PromptInput, text: String) -> 
     if m.id != id {
         return Err("Prompt ID mismatch".into());
     }
+    let new_needs: Vec<_> = meta
+        .needs
+        .iter()
+        .filter(|t| !m.fields.needs.contains(t))
+        .cloned()
+        .collect();
     m.fields = meta;
     m.updated_at = now();
     atomic_write(
@@ -555,7 +749,7 @@ pub fn update_prompt(root: &Path, id: &str, meta: PromptInput, text: String) -> 
         text.as_bytes(),
     )?;
     write_json(&path, &m)?;
-    add_tags(root, &m.fields.needs)
+    add_tags(root, &new_needs)
 }
 pub fn add_result(
     root: &Path,
@@ -635,12 +829,23 @@ pub fn trash_item(root: &Path, kind: &str, id: &str, prompt_id: Option<&str>) ->
 #[cfg(test)]
 mod tests;
 
-// A short-lived cross-process lease for vocabulary read/merge/write only.
+// Cross-process lease for vocabulary writes and tag-wide metadata operations.
 struct TagLock {
     path: PathBuf,
     token: String,
 }
 impl TagLock {
+    fn renew(&self) -> Outcome<()> {
+        if fs::read_to_string(&self.path).map_err(err)? != self.token {
+            return Err("Tag lock ownership changed; retry shortly".into());
+        }
+        fs::File::options()
+            .write(true)
+            .open(&self.path)
+            .map_err(err)?
+            .set_times(fs::FileTimes::new().set_modified(std::time::SystemTime::now()))
+            .map_err(err)
+    }
     fn acquire(root: &Path) -> Outcome<Self> {
         use std::time::{Duration, Instant};
         let start = Instant::now();

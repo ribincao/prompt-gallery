@@ -291,3 +291,23 @@ pub fn copy_image_to_clipboard(state: State<'_, LibraryState>, path: String) -> 
 pub fn clipboard_chat_url() -> Outcome<String> {
     crate::native::clipboard_chat_url()
 }
+
+#[tauri::command]
+pub async fn tag_usage(state: State<'_, LibraryState>) -> Outcome<Vec<library::TagUsage>> {
+    with_root(&state, library::tag_usage)
+}
+#[tauri::command]
+pub async fn remove_tag(
+    state: State<'_, LibraryState>,
+    tag: String,
+) -> Outcome<library::TagChange> {
+    with_root(&state, |r| library::remove_tag(r, &tag))
+}
+#[tauri::command]
+pub async fn rename_tag(
+    state: State<'_, LibraryState>,
+    from: String,
+    to: String,
+) -> Outcome<library::TagChange> {
+    with_root(&state, |r| library::rename_tag(r, &from, &to))
+}

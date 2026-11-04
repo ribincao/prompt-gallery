@@ -103,6 +103,47 @@ try {
   await page.screenshot({ path: "/tmp/prompt-gallery-dark.png" });
   await page.setViewportSize({ width: 800, height: 560 });
   assert.equal(await page.evaluate(() => document.body.scrollWidth > innerWidth), false);
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.evaluate(() => { testState.lib.tags = Array.from({length: 15}, (_, i) => `tag-${i + 1}`); });
+  await page.locator("#reload").click();
+  await page.locator("#nav-prompts").click();
+  await page.getByRole("button", {name: "+ New prompt", exact: true}).click();
+  const geometry = () => {
+    const modal = document.querySelector("#modal"), form = document.querySelector("#dialog-form");
+    const header = document.querySelector(".dialog-heading");
+    const r = header.getBoundingClientRect();
+    return {modalScroll: modal.scrollHeight > modal.clientHeight, bodyScroll: form.scrollHeight > form.clientHeight + 1, headerTop: r.top, headerBottom: r.bottom};
+  };
+  await page.waitForTimeout(50);
+  let layout = await page.evaluate(geometry);
+  assert.equal(layout.modalScroll, false);
+  assert.equal(layout.bodyScroll, false, JSON.stringify(layout));
+  await page.screenshot({path: "/tmp/prompt-gallery-new-prompt-1200.png"});
+  await page.locator('[name=text]').fill("A long prompt line.\n".repeat(40));
+  assert.ok(await page.locator('[name=text]').evaluate(e => e.scrollHeight > e.clientHeight));
+  await page.setViewportSize({width: 800, height: 560});
+  await page.locator("#dialog-form").evaluate(e => e.scrollTop = e.scrollHeight);
+  layout = await page.evaluate(geometry);
+  assert.equal(layout.modalScroll, false);
+  assert.ok(layout.headerTop >= 0 && layout.headerBottom < 560);
+  assert.ok(layout.bodyScroll);
+  await page.screenshot({path: "/tmp/prompt-gallery-new-prompt-small.png"});
+  await page.keyboard.press("Escape");
+  await page.locator("#manage-tags").click();
+  await page.locator("#tag-list").waitFor();
+  assert.ok(await page.locator("#tag-list").evaluate(e => e.scrollHeight > e.clientHeight));
+  assert.equal((await page.evaluate(geometry)).modalScroll, false);
+  assert.equal((await page.evaluate(geometry)).bodyScroll, false);
+  await page.screenshot({path: "/tmp/prompt-gallery-tags-small.png"});
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({width: 1200, height: 800});
+  await page.emulateMedia({colorScheme: "light"});
+  await page.getByRole("button", {name: "+ New prompt", exact: true}).click();
+  await page.locator('[name=title]').fill("Enter saves");
+  await page.locator('[name=title]').press("Enter");
+  await page.locator("#modal").waitFor({state: "hidden"});
+  assert.equal(await page.locator("#main h1").innerText(), "Enter saves");
+  console.log("PASS: 15-tag prompt fits 1200x800; long text scrolls internally; header stays visible at 800x560; tag list scrolls alone; Enter submits; Escape closes");
   assert.deepEqual(errors, []);
   console.log(
     "PASS: first run, import/tag/edit source, create/copy prompt, matching photos, result form defaults, drop, lightbox navigation, open chat, favorites/search, context menu, Trash, missing sources, image paste, light/dark and minimum size.",
