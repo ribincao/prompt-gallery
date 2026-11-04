@@ -88,9 +88,10 @@ The library is a normal folder, so back it up like one. Time Machine covers it. 
 ### Off-site backup to a bucket (optional)
 
 [`scripts/backup-r2.sh`](scripts/backup-r2.sh) copies the library to a private S3-compatible
-bucket, such as Cloudflare R2 (10 GB free). It uploads only new or changed files and **never
-deletes anything in the bucket**, so a photo you delete locally is still there. Thumbnails are
-skipped; the app rebuilds them.
+bucket, such as Cloudflare R2 (10 GB free). The bucket mirrors your library: it uploads only new
+or changed files, and anything you delete locally is **moved to `deleted/<date>/` in the bucket,
+never erased**. A restore brings back just your current library, and deleted photos stay
+recoverable. Thumbnails are skipped; the app rebuilds them.
 
 1. Create a private bucket and an API token limited to it (R2: *Manage API tokens*, Object
    Read & Write), then install the AWS CLI (`brew install awscli`).
@@ -102,10 +103,16 @@ skipped; the app rebuilds them.
    R2_BUCKET=your-bucket
    ```
 3. Run `scripts/backup-r2.sh` (or `--dryrun` first). To run it daily, add a launchd job that
-   calls the script; macOS runs a missed job when the Mac wakes up.
+   calls the script; macOS runs a missed job when the Mac wakes up. Put the job's copy of the
+   script outside `~/Desktop`, `~/Documents` and `~/Downloads`: macOS blocks background jobs
+   from reading those folders.
+   As a safety check, the script refuses to move more than 100 files to `deleted/` in one run
+   (that usually means it's pointed at the wrong folder); pass `--force` if it's intended.
 
-Restore everything into an empty folder with `scripts/backup-r2.sh --restore <folder>`, then
-choose that folder as the library in the app.
+Restore into an empty folder with `scripts/backup-r2.sh --restore <folder>` (on a new Mac too:
+copy the settings file over first), then choose that folder as the library in the app. To get
+a deleted file back, copy it from `deleted/<date>/<path>` in the bucket to the same path in
+your library. This is a one-way backup from one Mac, not live sync between several.
 
 ## Install and run (macOS)
 

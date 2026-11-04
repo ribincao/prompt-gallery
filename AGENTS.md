@@ -1,0 +1,92 @@
+# Working on Prompt Gallery (for AI agents and contributors)
+
+Read [`README.md`](README.md) for what the app does, then this file before changing anything.
+Deeper references: [`docs/spec.md`](docs/spec.md) (data format, screens, safety rules) and
+[`docs/agent-integration.md`](docs/agent-integration.md) (`pgallery` CLI, skill, plugins).
+
+## What it is
+
+A local macOS app (Tauri 2) that keeps image prompts, the source photos they need and the
+results they produced, linked together, in a **library folder the user picks** (e.g.
+`~/Pictures/Prompt Library`). The repo holds only the app; user data never lives in it.
+**macOS only** for now (sips thumbnails, AppKit clipboard, `open -R`); don't add Windows/Linux
+code paths unless asked.
+
+## Layout
+
+| Path | What |
+|---|---|
+| `src/` | The UI: plain HTML/CSS/JS, no framework, no build step, no network requests. `app.js` (screens, dialogs, tag manager), `prompt-cards.js` (stacked cards, drop on card), `result-tools.js` (source picker, multi-select, display names) |
+| `src-tauri/src/library.rs` | **The only code that writes the library.** IDs, atomic writes, imports, thumbnails, Trash, tag lock and tag operations, display names. Tests in `library/tests.rs` |
+| `src-tauri/src/commands.rs` | Tauri commands the UI calls (thin wrappers over `library.rs`), app config |
+| `src-tauri/src/asset.rs` | Serves images to the UI, only from inside the current library |
+| `src-tauri/src/native.rs` | macOS pasteboard: Copy image writes the file URL and PNG data |
+| `src-tauri/src/watcher.rs` | Watches the library, emits `library-changed` for live refresh |
+| `src-tauri/src/cli.rs`, `bin/pgallery.rs` | `pgallery` CLI for agents; tests in `src-tauri/tests/cli.rs` |
+| `skills/prompt-gallery/SKILL.md` | The agent skill (install the app, save generated images via `pgallery`) |
+| `.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/` | Plugin manifests for Claude Code and Codex; both point at the one `skills/` folder |
+| `scripts/backup-r2.sh` | Optional off-site backup to an S3-compatible bucket |
+| `tests/*.mjs` | UI tests with mocked IPC (need jsdom / Playwright installed outside the repo) |
+
+## Rules that keep user data safe
+
+- **Never write library files except through `library.rs`.** The CLI and the app both call it.
+  Agents saving images must use `pgallery add`, never copy files into the library by hand.
+- **Files are named by ID** (`YYYYMMDD-HHMMSS-xxxx`), each image with a `<id>.json` beside it.
+  Results link to source photos by ID. Never rename or move these files; user-facing names are
+  the optional `name` field (falls back to `originalName` for sources, date for results).
+- Imports **copy**, never move. Saves are **atomic** (temp file + rename). Deletes go to the
+  **macOS Trash**. The app never writes outside the library except its config file
+  (`~/Library/Application Support/com.ribin.prompt-gallery/config.json`).
+- Read-modify-write of `library.json` (the tag vocabulary) goes through `TagLock`
+  (`.prompt-gallery.lock`), shared by the app and `pgallery`. Tag remove/rename/merge edit every
+  record under that lock and must never delete images or prompts.
+- Hidden entries (`.DS_Store`, dotfiles) are ignored in all scans.
+- Don't change the on-disk format without updating `docs/spec.md`, the loader's backward
+  compatibility (old JSON must still load) and the tests.
+- When testing, use temp folders and `PROMPT_GALLERY_CONFIG_DIR` / `--library`. Never touch a
+  real library, the real config, or `/Applications` from tests.
+
+## Commands
+
+```bash
+make dev                        # run the app (live-reloads the UI)
+make build                      # release .app in src-tauri/target/release/bundle/macos/
+make install-cli                # cargo install pgallery into ~/.cargo/bin
+cd src-tauri && cargo test      # Rust tests (library + CLI)
+cd src-tauri && cargo build     # must stay warning-free
+```
+
+To update an installed copy: quit the app, then replace `/Applications/Prompt Gallery.app` with
+the new bundle (`ditto`), and rerun `make install-cli` if the CLI changed.
+
+## Backup script (`scripts/backup-r2.sh`)
+
+Settings in `~/.config/prompt-gallery/r2-backup.env` (never committed). Behaviour:
+- Mirrors the library to the bucket; uploads only new/changed files (`aws s3 sync`).
+- Files deleted locally are **moved** to `deleted/<YYYY-MM-DD>/<path>` in the bucket, never erased.
+  More than 100 at once needs `--force` (guards against pointing at the wrong folder).
+- Skips `.thumbs/`, `.DS_Store`, the lock file and temp files. `--restore <empty dir>` downloads
+  the current library without `deleted/`.
+- launchd can't read scripts under `~/Desktop`, `~/Documents` or `~/Downloads` (macOS privacy),
+  so a scheduled job should run a copy kept elsewhere, e.g. `~/.config/prompt-gallery/`.
+  Re-copy it after changing the script.
+- aws-cli to `*.r2.cloudflarestorage.com` can fail with TLS errors through a local HTTPS proxy;
+  launchd jobs don't inherit shell proxy variables.
+
+## Pitfalls already hit
+
+- The Codex sandbox can't write under `.agents/`; if a change there is needed, the agent leaves
+  a patch to apply outside the sandbox.
+- Headless Chromium and macOS automation are blocked in agent sandboxes, so UI layout changes
+  are only covered by the jsdom tests; check them in the real app before calling them done.
+- `tauri-cli` 2.9 sets an obsolete `STATIC_VCRUNTIME` variable; `build.rs` removes it on macOS to
+  avoid a warning.
+- The app restarted itself on first library choice in an early version; library switching now
+  happens in-process through the guarded asset handler. Don't reintroduce `app.restart()`.
+
+## Status
+
+v1 plus agent integration, tag manager, compact dialogs, display names and the backup script.
+Not done yet: a signed and notarized downloadable release (installs currently build from
+source), and a Windows port (see README).
