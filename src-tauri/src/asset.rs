@@ -2,6 +2,7 @@
 use crate::library;
 use std::{
     fs,
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::RwLock,
 };
@@ -57,22 +58,92 @@ pub fn response(root: Option<&Path>, request: Request<Vec<u8>>) -> Response<Vec<
         "webp" => "image/webp",
         "heic" => "image/heic",
         "gif" => "image/gif",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "m4v" => "video/x-m4v",
         _ => return denied(),
     };
-    match fs::read(path) {
-        Ok(bytes) => base
-            .header("Content-Type", mime)
-            .header("Content-Length", bytes.len())
-            .body(if request.method() == "HEAD" {
-                Vec::new()
-            } else {
-                bytes
-            })
-            .unwrap(),
-        Err(_) => base.status(404).body(Vec::new()).unwrap(),
+    let Ok(mut file) = fs::File::open(&path) else {
+        return base.status(404).body(vec![]).unwrap();
+    };
+    let Ok(meta) = file.metadata() else {
+        return base.status(404).body(vec![]).unwrap();
+    };
+    let len = meta.len();
+    let base = base
+        .header("Content-Type", mime)
+        .header("Accept-Ranges", "bytes");
+    // HEAD describes the full representation and ignores Range (RFC 9110).
+    if request.method() == "HEAD" {
+        return base.header("Content-Length", len).body(vec![]).unwrap();
     }
+    let range = request.headers().get("Range");
+    let (start, end, partial) = if let Some(range) = range {
+        match range.to_str().ok().and_then(|r| byte_range(r, len)) {
+            Some((start, end)) => (start, end, true),
+            None => {
+                return base
+                    .status(416)
+                    .header("Content-Range", format!("bytes */{len}"))
+                    .header("Content-Length", 0)
+                    .body(vec![])
+                    .unwrap()
+            }
+        }
+    } else if library::is_video(&path) && len > CHUNK {
+        (0, CHUNK - 1, true)
+    } else {
+        (0, len.saturating_sub(1), false)
+    };
+    // Even an explicit huge range must never allocate a full video in memory.
+    let (end, partial) = if library::is_video(&path) && end.saturating_sub(start) >= CHUNK {
+        (start + CHUNK - 1, true)
+    } else {
+        (end, partial)
+    };
+    let size = if len == 0 { 0 } else { end - start + 1 };
+    let mut bytes = vec![0; size as usize];
+    if file
+        .seek(SeekFrom::Start(start))
+        .and_then(|_| file.read_exact(&mut bytes))
+        .is_err()
+    {
+        return base.status(500).body(vec![]).unwrap();
+    }
+    let base = base.header("Content-Length", size);
+    let base = if partial {
+        base.status(206)
+            .header("Content-Range", format!("bytes {start}-{end}/{len}"))
+    } else {
+        base
+    };
+    base.body(bytes).unwrap()
 }
 
+const CHUNK: u64 = 4 * 1024 * 1024;
+fn byte_range(value: &str, len: u64) -> Option<(u64, u64)> {
+    if len == 0 {
+        return None;
+    }
+    let (a, b) = value.strip_prefix("bytes=")?.split_once('-')?;
+    if a.is_empty() {
+        let suffix = b.parse::<u64>().ok()?;
+        if suffix == 0 {
+            return None;
+        }
+        return Some((len.saturating_sub(suffix), len - 1));
+    }
+    let start = a.parse::<u64>().ok()?;
+    if start >= len {
+        return None;
+    }
+    let end = if b.is_empty() {
+        start.saturating_add(CHUNK - 1).min(len - 1)
+    } else {
+        b.parse::<u64>().ok()?.min(len - 1)
+    };
+    (end >= start).then_some((start, end))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,6 +158,73 @@ mod tests {
             .uri(format!("asset://localhost/{encoded}"))
             .body(vec![])
             .unwrap()
+    }
+    #[test]
+    fn video_ranges_head_and_bounds() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("video.mp4");
+        fs::write(&path, b"0123456789").unwrap();
+        for (range, expected, content_range) in [
+            ("bytes=0-2", "012", "bytes 0-2/10"),
+            ("bytes=4-6", "456", "bytes 4-6/10"),
+            ("bytes=-3", "789", "bytes 7-9/10"),
+            ("bytes=7-", "789", "bytes 7-9/10"),
+        ] {
+            let mut request = get(&path);
+            request
+                .headers_mut()
+                .insert("Range", range.parse().unwrap());
+            let r = response(Some(root.path()), request);
+            assert_eq!(r.status(), 206);
+            assert_eq!(r.body(), expected.as_bytes());
+            assert_eq!(r.headers()["Content-Range"], content_range);
+            assert_eq!(r.headers()["Content-Length"], "3");
+        }
+        for range in [
+            "bytes=10-",
+            "bytes=4-2",
+            "bytes=-0",
+            "bytes=0-1,3-4",
+            "junk",
+        ] {
+            let mut request = get(&path);
+            request
+                .headers_mut()
+                .insert("Range", range.parse().unwrap());
+            let r = response(Some(root.path()), request);
+            assert_eq!(r.status(), 416);
+            assert_eq!(r.headers()["Content-Range"], "bytes */10");
+        }
+        let mut request = get(&path);
+        *request.method_mut() = tauri::http::Method::HEAD;
+        request
+            .headers_mut()
+            .insert("Range", "bytes=0-2".parse().unwrap());
+        let r = response(Some(root.path()), request);
+        assert_eq!(r.status(), 200);
+        assert!(r.body().is_empty());
+        assert_eq!(r.headers()["Content-Length"], "10");
+        assert_eq!(r.headers()["Accept-Ranges"], "bytes");
+        let outside = tempfile::tempdir().unwrap();
+        assert_eq!(response(Some(outside.path()), get(&path)).status(), 403);
+        assert_eq!(byte_range("bytes=0-", CHUNK * 3), Some((0, CHUNK - 1)));
+    }
+    #[test]
+    fn generated_video_temp_library_smoke() {
+        let Ok(input) = std::env::var("PGALLERY_TEST_VIDEO") else {
+            return;
+        };
+        let root = tempfile::tempdir().unwrap();
+        let root = library::open_library(root.path(), false).unwrap();
+        let s = library::import_source(&root, Some(Path::new(&input)), None, vec![]).unwrap();
+        let path = root.join("sources").join(s.file);
+        let mut request = get(&path);
+        request
+            .headers_mut()
+            .insert("Range", "bytes=4-15".parse().unwrap());
+        let r = response(Some(&root), request);
+        assert_eq!(r.status(), 206);
+        assert_eq!(r.body(), &fs::read(input).unwrap()[4..16]);
     }
     #[test]
     fn first_choice_and_switches_enforce_the_live_root_without_restarting() {

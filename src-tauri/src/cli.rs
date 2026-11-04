@@ -47,7 +47,7 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
     let command =
         command.ok_or("Usage: pgallery [--library DIR] <where|tags|list|add> [--json]")?;
     let allowed: &[&str] = match command.as_str() {
-        "where" | "tags" => &[],
+        "where" | "tags" | "folders" => &[],
         "list" => &["--limit"],
         "add" => &[
             "--prompt-text",
@@ -61,6 +61,7 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
             "--source-name",
             "--source",
             "--source-tags",
+            "--source-folder",
             "--chat-url",
             "--model",
             "--note",
@@ -91,6 +92,9 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
             .map(String::from)
             .collect()
     };
+    if let Some(name) = one("--source-folder") {
+        library::folder_name(&name)?;
+    }
     // Validate add arguments before initializing or changing a library.
     let text = if command == "add" {
         let text = match (one("--prompt-text"), one("--prompt-file")) {
@@ -117,8 +121,16 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
             if many(flag).len() > count {
                 return Err(format!("{flag} has more names than image paths"));
             }
-            for name in many(flag) {
-                library::normalize_name(Some(name))?;
+            let paths = if flag == "--result-name" {
+                many("--result")
+            } else {
+                many("--source")
+                    .into_iter()
+                    .filter(|s| library::valid_id(s).is_err())
+                    .collect()
+            };
+            for (index, name) in many(flag).into_iter().enumerate() {
+                library::normalize_media_name(Some(name), &paths[index])?;
             }
         }
         for p in many("--result").into_iter().chain(
@@ -133,8 +145,10 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
                 .extension()
                 .and_then(|s| s.to_str())
                 .is_some_and(|s| {
-                    ["jpg", "jpeg", "png", "webp", "heic", "gif"]
-                        .contains(&s.to_lowercase().as_str())
+                    [
+                        "jpg", "jpeg", "png", "webp", "heic", "gif", "mp4", "mov", "m4v",
+                    ]
+                    .contains(&s.to_lowercase().as_str())
                 })
             {
                 return Err(format!("Unsupported image format: {p}"));
@@ -197,6 +211,9 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
             }))
             .collect::<Vec<_>>()));
     }
+    if command == "folders" {
+        return Ok(json!(library::marker(&root)?.folders));
+    }
     let text = text.unwrap();
     let mut source_ids = Vec::new();
     let mut sources = Vec::new();
@@ -228,6 +245,10 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
                     None,
                     tags("--source-tags"),
                 )?;
+                if let Some(folder) = one("--source-folder") {
+                    let folder = library::create_folder(&root, &folder, true)?;
+                    library::move_sources(&root, std::slice::from_ref(&s.id), Some(folder.id))?;
+                }
                 if name.is_some() {
                     library::update_source(&root, &s.id, s.tags.clone(), s.note.clone(), name)?;
                 }

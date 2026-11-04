@@ -6,14 +6,14 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
-#[derive(Default)]
-pub struct LibraryState(pub Mutex<Option<PathBuf>>);
+#[derive(Clone, Default)]
+pub struct LibraryState(pub Arc<Mutex<Option<PathBuf>>>);
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -96,7 +96,12 @@ pub async fn pick_image_files(app: AppHandle) -> Outcome<Vec<String>> {
     tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
-            .add_filter("Images", &["jpg", "jpeg", "png", "webp", "heic", "gif"])
+            .add_filter(
+                "Images and videos",
+                &[
+                    "jpg", "jpeg", "png", "webp", "heic", "gif", "mp4", "mov", "m4v",
+                ],
+            )
             .blocking_pick_files()
             .unwrap_or_default()
             .into_iter()
@@ -118,7 +123,10 @@ fn with_root<T>(state: &LibraryState, action: impl FnOnce(&Path) -> Outcome<T>) 
 }
 #[tauri::command]
 pub async fn load_library(state: State<'_, LibraryState>) -> Outcome<Library> {
-    with_root(&state, library::load_library)
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || with_root(&state, library::load_library))
+        .await
+        .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn import_sources(
@@ -126,22 +134,27 @@ pub async fn import_sources(
     paths: Vec<String>,
     tags: Vec<String>,
 ) -> Outcome<Vec<String>> {
-    with_root(&state, |root| {
-        let mut ids = vec![];
-        for path in paths {
-            ids.push(
-                library::import_source(root, Some(Path::new(&path)), None, tags.clone())
-                    .map_err(|e| {
-                        format!(
-                            "{path}: {e}. {} earlier imports completed; reload to see them.",
-                            ids.len()
-                        )
-                    })?
-                    .id,
-            );
-        }
-        Ok(ids)
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_root(&state, |root| {
+            let mut ids = vec![];
+            for path in paths {
+                ids.push(
+                    library::import_source(root, Some(Path::new(&path)), None, tags.clone())
+                        .map_err(|e| {
+                            format!(
+                                "{path}: {e}. {} earlier imports completed; reload to see them.",
+                                ids.len()
+                            )
+                        })?
+                        .id,
+                );
+            }
+            Ok(ids)
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn import_source_bytes(
@@ -149,9 +162,14 @@ pub async fn import_source_bytes(
     bytes: Vec<u8>,
     tags: Vec<String>,
 ) -> Outcome<String> {
-    with_root(&state, |r| {
-        library::import_source(r, None, Some(&bytes), tags).map(|s| s.id)
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_root(&state, |r| {
+            library::import_source(r, None, Some(&bytes), tags).map(|s| s.id)
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn update_source(
@@ -190,47 +208,52 @@ pub async fn add_results(
     chat_url: String,
     note: String,
 ) -> Outcome<Vec<String>> {
-    with_root(&state, |r| {
-        let fields = ResultInput {
-            name: None,
-            source_photos,
-            chat_url,
-            note,
-            model: "ChatGPT".into(),
-            favorite: false,
-        };
-        match (paths, bytes) {
-            (Some(paths), None) if !paths.is_empty() => {
-                let mut ids = vec![];
-                for p in paths {
-                    ids.push(
-                        library::add_result(
-                            r,
-                            &prompt_id,
-                            Some(Path::new(&p)),
-                            None,
-                            fields.clone(),
-                        )
-                        .map_err(|e| {
-                            format!(
-                                "{p}: {e}. {} earlier imports completed; reload to see them.",
-                                ids.len()
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_root(&state, |r| {
+            let fields = ResultInput {
+                name: None,
+                source_photos,
+                chat_url,
+                note,
+                model: "ChatGPT".into(),
+                favorite: false,
+            };
+            match (paths, bytes) {
+                (Some(paths), None) if !paths.is_empty() => {
+                    let mut ids = vec![];
+                    for p in paths {
+                        ids.push(
+                            library::add_result(
+                                r,
+                                &prompt_id,
+                                Some(Path::new(&p)),
+                                None,
+                                fields.clone(),
                             )
-                        })?,
-                    );
+                            .map_err(|e| {
+                                format!(
+                                    "{p}: {e}. {} earlier imports completed; reload to see them.",
+                                    ids.len()
+                                )
+                            })?,
+                        );
+                    }
+                    Ok(ids)
                 }
-                Ok(ids)
+                (None, Some(bytes)) => Ok(vec![library::add_result(
+                    r,
+                    &prompt_id,
+                    None,
+                    Some(&bytes),
+                    fields,
+                )?]),
+                _ => Err("Provide image paths or PNG bytes".into()),
             }
-            (None, Some(bytes)) => Ok(vec![library::add_result(
-                r,
-                &prompt_id,
-                None,
-                Some(&bytes),
-                fields,
-            )?]),
-            _ => Err("Provide image paths or PNG bytes".into()),
-        }
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn update_result(
@@ -312,4 +335,32 @@ pub async fn rename_tag(
     to: String,
 ) -> Outcome<library::TagChange> {
     with_root(&state, |r| library::rename_tag(r, &from, &to))
+}
+
+#[tauri::command]
+pub async fn create_folder(
+    state: State<'_, LibraryState>,
+    name: String,
+) -> Outcome<library::Folder> {
+    with_root(&state, |r| library::create_folder(r, &name, false))
+}
+#[tauri::command]
+pub async fn rename_folder(
+    state: State<'_, LibraryState>,
+    id: String,
+    name: String,
+) -> Outcome<()> {
+    with_root(&state, |r| library::rename_folder(r, &id, &name))
+}
+#[tauri::command]
+pub async fn delete_folder(state: State<'_, LibraryState>, id: String) -> Outcome<()> {
+    with_root(&state, |r| library::delete_folder(r, &id))
+}
+#[tauri::command]
+pub async fn move_sources(
+    state: State<'_, LibraryState>,
+    ids: Vec<String>,
+    folder: Option<String>,
+) -> Outcome<()> {
+    with_root(&state, |r| library::move_sources(r, &ids, folder))
 }

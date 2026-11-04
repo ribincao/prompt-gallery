@@ -1,5 +1,5 @@
 import { createPromptGrid } from "./prompt-cards.js";
-import { sourcePhotoPicker, createResultSelection, sourceName, resultName } from "./result-tools.js";
+import { sourcePhotoPicker, createResultSelection, sourceName, resultName, stem, mediaPoster, mediaPreview } from "./result-tools.js";
 
 const { invoke, convertFileSrc, Channel } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -37,6 +37,45 @@ let lightItems = [],
   modalSubmit = null;
 let dragging = false;
 let showAllSourcesFor = null;
+let sourceFolder = null; // null = folder grid; empty string = Unfiled
+let sourceMode = false, sourceAnchor = null, selectedSources = new Set(), visibleSources = [];
+const folders = () => library?.folders || [];
+const folderOf = (s) => folders().find((f) => f.id === s.folder)?.id || "";
+const folderLabel = (id) => folders().find((f) => f.id === id)?.name || "Unfiled";
+function folderPicker(selected = "") {
+  return `<label class="field">Folder<select name="folder"><option value="">Unfiled</option>${folders().map((f) => `<option value="${esc(f.id)}" ${f.id === selected ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select></label>`;
+}
+function folderForm(id = null) {
+  const f = folders().find((f) => f.id === id);
+  showModal(f ? "Rename folder" : "New folder", `${field("Name", "name", f?.name || "", { required: true })}${footer()}`, async (form) => {
+    await invoke(f ? "rename_folder" : "create_folder", { id, name: form.elements.name.value });
+    closeModal(); await refresh();
+  });
+}
+async function moveSelected(ids, folder) {
+  try { await invoke("move_sources", { ids, folder: folder || null }); }
+  finally { await refresh(); }
+  selectedSources.clear(); sourceMode = false; render();
+}
+function moveDialog() {
+  const ids = [...selectedSources];
+  showModal("Move to…", `${folderPicker()}<p>${ids.length} selected items</p>${footer("Move")}`, async (form) => {
+    await moveSelected(ids, form.elements.folder.value); closeModal();
+  });
+}
+function renderSources(items) {
+  if (sourceFolder && !folders().some((f) => f.id === sourceFolder)) sourceFolder = null;
+  const flat = !!(filter || query.trim());
+  visibleSources = flat ? items : items.filter((s) => folderOf(s) === sourceFolder);
+  selectedSources = new Set([...selectedSources].filter((id) => visibleSources.some((s) => s.id === id)));
+  const grid = !flat && sourceFolder === null;
+  const folderCard = (id, name) => {
+    const contents = library.sources.filter((s) => folderOf(s) === id);
+    return `<article class="card folder-card" data-folder-target="${esc(id)}"><button data-action="open-folder" data-id="${esc(id)}">${contents[0]?.thumbnail ? `<img src="${asset(contents[0].thumbnail)}" alt="">` : '<span class="folder-cover">▱</span>'}<div class="card-body"><h3>${esc(name)}</h3><small>${contents.length} items</small></div></button>${id ? button("folder-menu", "⋯", "folder-menu", `data-id="${esc(id)}" aria-label="Manage ${esc(name)}"`) : ""}</article>`;
+  };
+  main.innerHTML = `<header class="page-header"><div><h1>${sourceFolder !== null && !flat ? `${button("source-root", "Source photos", "back", 'data-folder-target=""')} › ${esc(folderLabel(sourceFolder))}` : "Source photos"}</h1></div><div class="actions">${!grid ? `${button("select-sources", sourceMode ? "Done" : "Select")}${sourceMode ? `<small>${selectedSources.size} selected</small>${button("move-sources", "Move to…", "", selectedSources.size ? "" : "disabled")}` : ""}` : ""}${button("paste", "Paste image")}${button("pick-sources", "+ Add photos", "primary")}</div></header>${warnings()}${!grid && folders().length ? `<div class="folder-drop-targets" aria-label="Move by dragging to a folder">${folders().map((f) => button("open-folder", esc(f.name), "chip", `data-id="${esc(f.id)}" data-folder-target="${esc(f.id)}"`)).join("")}</div>` : ""}<div class="grid">${grid ? folders().map((f) => folderCard(f.id, f.name)).join("") + (library.sources.some((s) => !folderOf(s)) ? folderCard("", "Unfiled") : "") + button("new-folder", "+ New folder", "card new-folder") : visibleSources.map((s) => sourceCard(s)).join("")}</div>${!grid && !visibleSources.length ? '<p class="empty">No matching items. Drop files here or choose Add photos.</p>' : ""}`;
+}
+
 const prompt = () => library?.prompts.find((p) => p.id === promptId);
 const source = (id) => library?.sources.find((s) => s.id === id);
 const badges = (tags) => tags.map((t) => `<span class="badge">${esc(t)}</span>`).join("");
@@ -56,9 +95,9 @@ const resultMeta = (r, sourcePhotos) => ({
   favorite: r.favorite,
 });
 // Leaving a fallback untouched must not turn it into a custom name.
-function editedName(value, displayed, stored) {
-  const name = value.trim();
-  if (name === displayed) return stored ?? null;
+function editedName(value, displayed, stored, file) {
+  const name = stem(value, file);
+  if (name === displayed) return stored ? stem(stored, file) : null;
   if ([...name].length > 200) throw new Error("Names must be 200 characters or fewer");
   return name || null;
 }
@@ -129,7 +168,7 @@ function warnings() {
     : "";
 }
 function sourceCard(s, mini = false) {
-  const card = `<button class="card source-card ${s.id === selectedSource ? "selected" : ""}" data-action="source" data-id="${s.id}" aria-label="Preview ${esc(sourceName(s))}"><img src="${asset(s.thumbnail || s.path)}" alt="${esc(sourceName(s))}" draggable="false" loading="lazy"><div class="card-body">${mini ? esc(sourceName(s)) : `<h3>${esc(sourceName(s))}</h3><div class="badges">${badges(s.tags)}</div>`}</div></button>`;
+  const card = `<button class="card source-card ${s.id === selectedSource || (!mini && selectedSources.has(s.id)) ? "selected" : ""}" data-action="source" data-id="${s.id}" aria-label="Preview ${esc(sourceName(s))}">${mediaPoster(s, asset, esc, sourceName(s))}<div class="card-body">${mini ? esc(sourceName(s)) : `<h3>${esc(sourceName(s))}</h3>${filter || query.trim() ? `<small class="folder-label">${esc(folderLabel(folderOf(s)))}</small>` : ""}<div class="badges">${badges(s.tags)}</div>`}</div></button>`;
   return mini ? `<div class="source-mini">${card}</div>` : card;
 }
 function renderSidebar() {
@@ -173,6 +212,7 @@ function render() {
       text.join(" ").toLowerCase().includes(query.toLowerCase())
     );
   });
+  if (!isPrompts) { renderSources(items); return; }
   main.innerHTML = `<header class="page-header"><div><p class="eyebrow">YOUR LIBRARY</p><h1>${isPrompts ? "Prompts" : "Source photos"}</h1><p>${items.length} ${isPrompts ? "ideas to come back to" : "photos, ready for your next idea"}</p></div><div class="actions">${!isPrompts ? button("paste", "Paste image") : ""}${button(isPrompts ? "new-prompt" : "pick-sources", isPrompts ? "+ New prompt" : "+ Add photos", "primary")}</div></header>${warnings()}${items.length ? `<div class="grid">${items.map((item) => (isPrompts ? promptGrid.card(item) : sourceCard(item))).join("")}</div>` : `<section class="empty"><div class="hero-mark">${isPrompts ? "▤" : "▧"}</div><h2>${query || filter || favorites ? "Nothing matches yet" : isPrompts ? "Your next idea starts here" : "Bring your own inspiration"}</h2><p>${query || filter || favorites ? "Try a different search or clear your filters." : isPrompts ? "Save a prompt, then collect what it creates. You can also paste a block of prompt text here." : "Drop photos here, paste an image, or choose files. Originals are always copied and left untouched."}</p>${button(isPrompts ? "new-prompt" : "pick-sources", isPrompts ? "Create a prompt" : "Choose photos", "primary")}</section>`}`;
   promptGrid.afterRender();
 }
@@ -211,8 +251,8 @@ async function flushLibraryRefresh() {
   pendingLibraryRefresh = false;
   try { await refresh(true); } catch (error) { report(error); }
 }
-modal.addEventListener("close", () => setTimeout(flushLibraryRefresh, 0));
-lightbox.addEventListener("close", () => setTimeout(flushLibraryRefresh, 0));
+modal.addEventListener("close", () => { $$("video", modal).forEach((v) => v.pause()); setTimeout(flushLibraryRefresh, 0); });
+lightbox.addEventListener("close", () => { $$("video", lightbox).forEach((v) => v.pause()); setTimeout(flushLibraryRefresh, 0); });
 async function chooseLibrary() {
   if (busy) return;
   const path = await invoke("pick_library_folder");
@@ -273,14 +313,15 @@ function openSource(id) {
   );
   showModal(
     sourceName(s),
-    `<div class="name-editor">${field("Name", "name", sourceName(s))}${s.name?.trim() ? `<small class="muted">Original file: ${esc(s.originalName)}</small>` : ""}</div><img class="source-preview" src="${asset(s.path)}" alt="${esc(sourceName(s))}"><div class="actions">${button("copy-image", "Copy image", "primary", `data-id="${id}"`)}${button("reveal", "Reveal in Finder", "", `data-id="${id}"`)}${button("delete-source", "Move to Trash", "danger", `data-id="${id}"`)}</div><div class="section-header"><h3>Tags</h3></div>${tagChecks("tags", s.tags)}<div class="tag-editor">${field("New tags, separated by commas", "newTags")}</div><div class="tag-editor">${field("Note", "note", s.note, { area: true })}</div><div class="source-uses"><h3>Results that used this photo (${uses.length})</h3>${uses.length ? uses.map(({ p, r }) => button("result", esc(`${p.title} · ${resultName(r, date)}`), "", `data-id="${r.id}" data-pid="${p.id}"`)).join("") : "<small>No linked results yet.</small>"}</div>${footer("Save photo details")}`,
+    `<div class="name-editor">${field("Name", "name", sourceName(s))}${s.name?.trim() ? `<small class="muted">Original file: ${esc(stem(s.originalName, s.file || s.originalName))}</small>` : ""}</div>${mediaPreview(s, asset, esc, sourceName(s), "source-preview")}${folderPicker(folderOf(s))}<div class="actions">${button("copy-image", s.kind === "video" ? "Copy video" : "Copy image", "primary", `data-id="${esc(id)}"`)}${button("reveal", "Reveal in Finder", "", `data-id="${esc(id)}"`)}${button("delete-source", "Move to Trash", "danger", `data-id="${esc(id)}"`)}</div><div class="section-header"><h3>Tags</h3></div>${tagChecks("tags", s.tags)}<div class="tag-editor">${field("New tags, separated by commas", "newTags")}</div><div class="tag-editor">${field("Note", "note", s.note, { area: true })}</div><div class="source-uses"><h3>Results that used this photo (${uses.length})</h3>${uses.length ? uses.map(({ p, r }) => button("result", esc(`${p.title} · ${resultName(r, date)}`), "", `data-id="${r.id}" data-pid="${p.id}"`)).join("") : "<small>No linked results yet.</small>"}</div>${footer("Save photo details")}`,
     async (form) => {
       await invoke("update_source", {
         id,
         tags: collectedTags(form, "tags", "newTags"),
         note: form.elements.note.value,
-        name: editedName(form.elements.name.value, sourceName(s), s.name),
+        name: editedName(form.elements.name.value, sourceName(s), s.name, s.file || s.originalName),
       });
+      await invoke("move_sources", { ids: [id], folder: form.elements.folder.value || null });
       closeModal();
       await refresh();
       toast("Photo details saved");
@@ -311,6 +352,7 @@ async function importSources(data) {
       await refresh();
       throw e;
     }
+    if (sourceFolder && !filter && !query.trim()) await invoke("move_sources", { ids, folder: sourceFolder });
     await refresh();
     importedTags(ids);
   });
@@ -371,15 +413,15 @@ function renderLightbox() {
     return;
   }
   $("#lightbox-content").innerHTML =
-    `<div class="dialog-header"><div class="actions">${button("prev-result", "←", "", `aria-label="Previous result" ${lightIndex === 0 ? "disabled" : ""}`)}<small>${lightIndex + 1} / ${lightItems.length}</small>${button("next-result", "→", "", `aria-label="Next result" ${lightIndex === lightItems.length - 1 ? "disabled" : ""}`)}</div>${button("close-lightbox", "✕", "icon", 'aria-label="Close result"')}</div><img class="lightbox-image" src="${asset(r.path)}" alt="${esc(resultName(r, date))}"><div class="lightbox-footer"><div class="actions"><small>${esc(resultName(r, date))} · ${esc(r.model)}</small><div class="actions">${button("favorite-result", r.favorite ? "★ Favorite" : "☆ Favorite")}${button("edit-result", "Edit")}${r.chatUrl ? button("open-url", "Open chat ↗", "primary", `data-url="${esc(r.chatUrl)}"`) : ""}${button("delete-result", "Move to Trash", "danger")}</div></div>${r.note ? `<p>${esc(r.note)}</p>` : ""}<div class="image-sources">${r.sourcePhotos.length ? "<small>Source photos:</small>" : ""}${r.sourcePhotos
+    `<div class="dialog-header"><div class="actions">${button("prev-result", "←", "", `aria-label="Previous result" ${lightIndex === 0 ? "disabled" : ""}`)}<small>${lightIndex + 1} / ${lightItems.length}</small>${button("next-result", "→", "", `aria-label="Next result" ${lightIndex === lightItems.length - 1 ? "disabled" : ""}`)}</div>${button("close-lightbox", "✕", "icon", 'aria-label="Close result"')}</div>${mediaPreview(r, asset, esc, resultName(r, date), "lightbox-image")}<div class="lightbox-footer"><div class="actions"><small>${esc(resultName(r, date))} · ${esc(r.model)}</small><div class="actions">${button("favorite-result", r.favorite ? "★ Favorite" : "☆ Favorite")}${button("copy-result", r.kind === "video" ? "Copy video" : "Copy image")}${button("edit-result", "Edit")}${r.chatUrl ? button("open-url", "Open chat ↗", "primary", `data-url="${esc(r.chatUrl)}"`) : ""}${button("delete-result", "Move to Trash", "danger")}</div></div>${r.note ? `<p>${esc(r.note)}</p>` : ""}<div class="image-sources">${r.sourcePhotos.length ? "<small>Source photos:</small>" : ""}${r.sourcePhotos
       .map((id) => {
         const s = source(id);
         return s
           ? button(
               "light-source",
-              `<img src="${asset(s.thumbnail || s.path)}" alt=""><span>${esc(sourceName(s))}</span>`,
+              `${mediaPoster(s, asset, esc)}<span>${esc(sourceName(s))}</span>`,
               "linked-source",
-              `data-id="${id}" aria-label="Open source photo ${esc(sourceName(s))}"`,
+              `data-id="${esc(id)}" aria-label="Open source photo ${esc(sourceName(s))}"`,
             )
           : '<span class="missing">Source photo missing</span>';
       })
@@ -401,7 +443,7 @@ function editResult() {
         promptId: pid,
         id: r.id,
         meta: {
-          name: editedName(f.get("name"), resultName(r, date), r.name),
+          name: editedName(f.get("name"), resultName(r, date), r.name, r.file || r.path),
           sourcePhotos: f.getAll("sources"),
           chatUrl: f.get("chatUrl").trim(),
           model: f.get("model"),
@@ -522,6 +564,7 @@ async function pickResults(pid = promptId) {
   });
 }
 function navigate(next) {
+  sourceFolder = null; sourceMode = false; selectedSources.clear();
   view = next;
   promptId = null;
   selectedSource = null;
@@ -543,13 +586,31 @@ const actions = {
     render();
   },
   filter: (el) => {
+    sourceFolder = null;
     filter = el.dataset.tag;
     promptId = null;
     render();
   },
-  source: (el) => {
-    if (!dragging) openSource(el.dataset.id);
+  source: (el, event) => {
+    if (dragging) return;
+    if (view === "sources" && !promptId && (sourceMode || event.metaKey || event.ctrlKey || event.shiftKey)) {
+      sourceMode = true;
+      const id = el.dataset.id;
+      if (event.shiftKey && sourceAnchor && visibleSources.some((s) => s.id === sourceAnchor)) {
+        const a = visibleSources.findIndex((s) => s.id === sourceAnchor), b = visibleSources.findIndex((s) => s.id === id);
+        visibleSources.slice(Math.min(a,b), Math.max(a,b)+1).forEach((s) => selectedSources.add(s.id));
+      } else { selectedSources.has(id) ? selectedSources.delete(id) : selectedSources.add(id); sourceAnchor = id; }
+      render();
+    } else openSource(el.dataset.id);
   },
+  "new-folder": () => folderForm(),
+  "rename-folder": (el) => folderForm(el.dataset.id),
+  "delete-folder": (el) => showModal("Delete folder?", `<p>Its items will become Unfiled. All media is kept.</p>${footer("Delete folder")}`, async () => { await invoke("delete_folder", { id: el.dataset.id }); closeModal(); await refresh(); }),
+  "open-folder": (el) => { sourceFolder = el.dataset.id; sourceMode = false; selectedSources.clear(); render(); },
+  "source-root": () => { sourceFolder = null; sourceMode = false; selectedSources.clear(); render(); },
+  "select-sources": () => { sourceMode = !sourceMode; selectedSources.clear(); render(); },
+  "move-sources": () => moveDialog(),
+  "folder-menu": (el) => folderMenu(el.dataset.id, el.getBoundingClientRect()),
   "copy-image": (el) => copyImage(el.dataset.id),
   reveal: (el) => invoke("reveal_in_finder", { path: source(el.dataset.id).path }),
   "copy-prompt": async () => {
@@ -601,6 +662,7 @@ const actions = {
     openSource(el.dataset.id);
   },
   "open-url": (el) => invoke("open_chat", { url: el.dataset.url }),
+  "copy-result": async () => { await invoke("copy_image_to_clipboard", { path: lightItems[lightIndex].path }); toast("Copied"); },
   "edit-result": () => editResult(),
   "favorite-result": async () => {
     const r = lightItems[lightIndex];
@@ -641,6 +703,7 @@ $("#reload").addEventListener("click", () => {
 $("#nav-prompts").addEventListener("click", () => navigate("prompts"));
 $("#nav-sources").addEventListener("click", () => navigate("sources"));
 $("#search").addEventListener("input", (e) => {
+  sourceFolder = null;
   query = e.target.value;
   promptId = null;
   render();
@@ -803,13 +866,15 @@ document.addEventListener("keydown", (e) => {
   }
 });
 document.addEventListener("contextmenu", (e) => {
+  const folder = e.target.closest(".folder-card");
+  if (folder?.dataset.folderTarget) { e.preventDefault(); folderMenu(folder.dataset.folderTarget, {left:e.clientX,bottom:e.clientY}); return; }
   const card = e.target.closest(".source-card");
   if (!card) return;
   e.preventDefault();
   selectedSource = card.dataset.id;
   const menu = $("#context-menu");
   menu.innerHTML =
-    button("copy-image", "Copy image", "", `data-id="${selectedSource}"`) +
+    button("copy-image", source(selectedSource)?.kind === "video" ? "Copy video" : "Copy image", "", `data-id="${selectedSource}"`) +
     button("reveal", "Reveal in Finder", "", `data-id="${selectedSource}"`) +
     button("source", "Edit tags", "", `data-id="${selectedSource}"`) +
     button("delete-source", "Move to Trash", "danger", `data-id="${selectedSource}"`);
@@ -820,9 +885,10 @@ document.addEventListener("contextmenu", (e) => {
 });
 // Native dragDropEnabled intercepts HTML dragstart; begin a native drag after a mouse threshold.
 document.addEventListener("mousedown", (e) => {
-  const card = e.target.closest(".source-card");
-  if (!card || e.button !== 0 || busy) return;
-  const s = source(card.dataset.id),
+  const card = e.target.closest(".source-card, .result-card");
+  if (!card || e.button !== 0 || busy || e.metaKey || e.shiftKey || e.ctrlKey) return;
+  const isSource = card.classList.contains("source-card");
+  const s = isSource ? source(card.dataset.id) : library.prompts.find((p) => p.id === card.dataset.pid)?.results.find((r) => r.id === card.dataset.id),
     x = e.clientX,
     y = e.clientY;
   const cleanup = () => {
@@ -837,12 +903,12 @@ document.addEventListener("mousedown", (e) => {
     if (Math.hypot(event.clientX - x, event.clientY - y) < 7) return;
     cleanup();
     dragging = true;
-    selectedSource = s.id;
+    if (isSource) selectedSource = s.id;
     const onEvent = new Channel();
     onEvent.onmessage = () => setTimeout(() => (dragging = false), 150);
     invoke("plugin:drag|start_drag", {
-      item: [s.path],
-      image: s.thumbnail || s.path,
+      item: isSource && selectedSources.has(s.id) ? library.sources.filter((s) => selectedSources.has(s.id)).map((s) => s.path) : [s.path],
+      image: s.thumbnail || (s.kind === "video" ? new URL("./app-icon.png", location.href).href : s.path),
       options: { mode: "copy" },
       onEvent,
     }).catch((error) => {
@@ -854,7 +920,7 @@ document.addEventListener("mousedown", (e) => {
   document.addEventListener("mouseup", up, { once: true });
 });
 document.addEventListener("dragstart", (e) => {
-  if (e.target.closest(".source-card")) e.preventDefault();
+  if (e.target.closest(".source-card, .result-card")) e.preventDefault();
 });
 async function start() {
   await listen("library-changed", (event) => {
@@ -864,22 +930,34 @@ async function start() {
     }
   });
   const dragHover = (event) => {
-    if (dragging || busy || modal.open || lightbox.open) return;
+    if (busy || modal.open || lightbox.open) return;
+    const pos = event.payload.position, scale = window.devicePixelRatio || 1;
+    const target = pos && document.elementFromPoint(pos.x / scale, pos.y / scale)?.closest("[data-folder-target]");
+    $$(".folder-drop-active").forEach((el) => el.classList.remove("folder-drop-active"));
+    target?.classList.add("folder-drop-active");
+    if (dragging) return;
     main.classList.add("drop-active");
     promptGrid.highlightDrop(event.payload.position);
   };
   await listen("tauri://drag-enter", dragHover);
   await listen("tauri://drag-over", dragHover);
   await listen("tauri://drag-leave", () => {
+    $$(".folder-drop-active").forEach((el) => el.classList.remove("folder-drop-active"));
     main.classList.remove("drop-active");
     promptGrid.clearDrop();
   });
   await listen("tauri://drag-drop", (event) => {
+    $$(".folder-drop-active").forEach((el) => el.classList.remove("folder-drop-active"));
     main.classList.remove("drop-active");
     const card = promptGrid.hitTest(event.payload.position);
     promptGrid.clearDrop();
-    if (dragging || busy) return;
-    const paths = event.payload.paths.filter((p) => /\.(jpe?g|png|webp|heic|gif)$/i.test(p));
+    if (busy) return;
+    const pos = event.payload.position, scale = window.devicePixelRatio || 1;
+    const target = pos && document.elementFromPoint(pos.x / scale, pos.y / scale)?.closest("[data-folder-target]");
+    const internal = event.payload.paths.map((path) => library?.sources.find((s) => s.path === path)?.id);
+    if (target && internal.length && internal.every(Boolean)) { task(() => moveSelected(internal, target.dataset.folderTarget)); return; }
+    if (dragging) return;
+    const paths = event.payload.paths.filter((p) => /\.(jpe?g|png|webp|heic|gif|mp4|mov|m4v)$/i.test(p));
     if (paths.length) {
       if (card) promptGrid.select(card);
       acceptImport({ paths }, card?.dataset.promptId || promptId).catch(report);
@@ -898,3 +976,9 @@ async function start() {
   });
 }
 start().catch(report);
+
+function folderMenu(id, rect) {
+  const menu = $("#context-menu");
+  menu.innerHTML = button("rename-folder", "Rename", "", `data-id="${esc(id)}"`) + button("delete-folder", "Delete", "danger", `data-id="${esc(id)}"`);
+  menu.hidden = false; menu.style.left = `${Math.min(rect.left, innerWidth - 200)}px`; menu.style.top = `${Math.min(rect.bottom, innerHeight - 120)}px`;
+}

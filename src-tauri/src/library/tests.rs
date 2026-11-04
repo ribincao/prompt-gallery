@@ -602,3 +602,149 @@ fn names_count_unicode_characters_after_trimming() {
     assert!(normalize_name(Some("🐈".repeat(201))).is_err());
     assert_eq!(normalize_name(None).unwrap(), None);
 }
+
+#[test]
+fn virtual_folders_are_metadata_only_and_locked() {
+    let dir = tempdir().unwrap();
+    let root = open_library(dir.path(), false).unwrap();
+    let old: LibraryMeta =
+        serde_json::from_str(r#"{"app":"prompt-gallery","version":1,"tags":[]}"#).unwrap();
+    assert!(old.folders.is_empty());
+    let a = create_folder(&root, " Family ", false).unwrap();
+    assert_eq!(a.name, "Family");
+    valid_id(&a.id).unwrap();
+    assert!(create_folder(&root, "family", false).is_err());
+    assert!(create_folder(&root, " ", false).is_err());
+    assert!(create_folder(&root, &"a".repeat(101), false).is_err());
+    let b = create_folder(&root, "Work", false).unwrap();
+    assert!(rename_folder(&root, &b.id, "FAMILY").is_err());
+    rename_folder(&root, &a.id, "Home").unwrap();
+    let s = import_source(&root, None, Some(b"\x89PNG\r\n\x1a\nfirst"), vec![]).unwrap();
+    let t = import_source(&root, None, Some(b"\x89PNG\r\n\x1a\nsecond"), vec![]).unwrap();
+    let original = fs::read(root.join("sources").join(&s.file)).unwrap();
+    move_sources(&root, &[s.id.clone(), t.id.clone()], Some(a.id.clone())).unwrap();
+    assert!(load_library(&root)
+        .unwrap()
+        .sources
+        .iter()
+        .all(|s| s.meta.folder.as_ref() == Some(&a.id)));
+    delete_folder(&root, &a.id).unwrap();
+    assert!(load_library(&root)
+        .unwrap()
+        .sources
+        .iter()
+        .all(|s| s.meta.folder.is_none()));
+    assert_eq!(
+        fs::read(root.join("sources").join(&s.file)).unwrap(),
+        original
+    );
+    let lock = TagLock::acquire(&root).unwrap();
+    let root2 = root.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        tx.send(create_folder(&root2, "Waits", false)).unwrap();
+    });
+    assert!(rx
+        .recv_timeout(std::time::Duration::from_millis(100))
+        .is_err());
+    drop(lock);
+    assert!(rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap()
+        .is_ok());
+    thread.join().unwrap();
+}
+#[test]
+fn video_import_and_extension_free_names_preserve_originals() {
+    let dir = tempdir().unwrap();
+    let root = open_library(dir.path(), false).unwrap();
+    let input = tempdir().unwrap();
+    let movie = input.path().join("Clip.MOV");
+    fs::write(&movie, b"video fixture").unwrap();
+    let s = import_source(&root, Some(&movie), None, vec![]).unwrap();
+    assert_eq!(s.kind.as_deref(), Some("video"));
+    update_source(&root, &s.id, vec![], "".into(), Some(" Travel.mov ".into())).unwrap();
+    let loaded = load_library(&root).unwrap();
+    assert_eq!(loaded.sources[0].meta.name.as_deref(), Some("Travel"));
+    assert_eq!(loaded.sources[0].meta.original_name, "Clip.MOV");
+    let pid = create_prompt(&root, meta(), "movie".into()).unwrap();
+    let rid = add_result(
+        &root,
+        &pid,
+        Some(&movie),
+        None,
+        ResultInput {
+            name: Some("Film.MOV".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let loaded = load_library(&root).unwrap();
+    let r = &loaded.prompts[0].results[0].meta;
+    assert_eq!(r.fields.name.as_deref(), Some("Film"));
+    assert_eq!(r.kind.as_deref(), Some("video"));
+    update_result(
+        &root,
+        &pid,
+        &rid,
+        ResultInput {
+            name: Some("Edited.mov".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        load_library(&root).unwrap().prompts[0].results[0]
+            .meta
+            .fields
+            .name
+            .as_deref(),
+        Some("Edited")
+    );
+    assert_eq!(
+        normalize_media_name(Some("archive.v2.JPG".into()), "x.jpg")
+            .unwrap()
+            .as_deref(),
+        Some("archive.v2")
+    );
+    assert_eq!(fs::read(movie).unwrap(), b"video fixture");
+}
+
+#[test]
+fn thumbnail_timeout_kills_and_reaps_child() {
+    let mut child = std::process::Command::new("/bin/sleep")
+        .arg("30")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let started = std::time::Instant::now();
+    assert!(
+        wait_with_timeout(&mut child, std::time::Duration::from_millis(60))
+            .unwrap()
+            .is_none()
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    // try_wait returns the cached reaped exit status rather than a running process.
+    assert!(!child.try_wait().unwrap().unwrap().success());
+}
+#[test]
+fn thumbnail_child_success_does_not_wait_for_timeout() {
+    let mut child = std::process::Command::new("/usr/bin/true").spawn().unwrap();
+    assert!(
+        wait_with_timeout(&mut child, std::time::Duration::from_secs(1))
+            .unwrap()
+            .unwrap()
+            .success()
+    );
+}
+#[test]
+fn missing_video_posters_are_attempted_once_per_session_and_library() {
+    let attempts = std::sync::Mutex::new(std::collections::HashSet::new());
+    let a = Path::new("/tmp/library-a/.thumbs/item.jpg");
+    let b = Path::new("/tmp/library-b/.thumbs/item.jpg");
+    assert!(claim_poster_attempt(&attempts, a));
+    assert!(!claim_poster_attempt(&attempts, a));
+    assert!(claim_poster_attempt(&attempts, b));
+}

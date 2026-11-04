@@ -6,7 +6,7 @@
 
 <p align="center">
   A local Mac app for the AI image prompts you collect, the photos you feed them,<br>
-  and the pictures they make.
+  and the pictures and videos they make.
 </p>
 
 ![Prompts view with stacked result cards](docs/screenshots/prompts.png)
@@ -21,8 +21,8 @@ cat, a landscape, a character sheet.
 Prompt Gallery keeps all three things together and linked:
 
 - **Prompts**: the text, where you found it, and what kind of source photo it needs.
-- **Source photos**: your own pictures, tagged by what they show.
-- **Results**: every image a prompt produced, with the source photo it used and a link back
+- **Source photos**: your images and videos, tagged and organized in virtual folders.
+- **Results**: every image or video a prompt produced, with the source photo it used and a link back
   to the ChatGPT conversation.
 
 Open a prompt and the matching source photos are right there. Copy the prompt, drag a photo
@@ -40,6 +40,19 @@ Drag the thumbnail straight into the chat instead.
 ![Source photo with Copy image, ready to paste into ChatGPT](docs/screenshots/copy-image.png)
 
 ## Features
+
+- **Extension-free names.** Name fields and labels omit the file extension. Saving a matching
+  extension strips it; original filenames and files remain untouched.
+- **Virtual source folders.** Open Source photos to see folder covers and counts. Create,
+  rename, or delete folders; deleting a folder puts its items in Unfiled. Select items with
+  Select, Cmd-click, or Shift-click and use Move to…. Drag to a folder target or the breadcrumb
+  root (Unfiled). Imports inside a folder inherit it. Search and tag filters show matches
+  across all folders with folder labels; clearing them returns to the folder grid.
+- **Videos alongside images.** Import MP4, MOV and M4V as sources or results, including via
+  `pgallery`. Posters show a play badge and duration when available. Open a video to play it
+  with controls; Copy video copies its original file URL. Video paste is not supported.
+  Quick Look creates posters within an eight-second budget; unavailable posters show a placeholder.
+  Each video is attempted once per app session; restart to retry a failed poster.
 
 - **Prompt grid with stacked results.** Each card shows a prompt's newest results as a little
   pile of photos with a count.
@@ -80,7 +93,7 @@ Safety rules the app follows:
 - **Deleting moves to the macOS Trash**, so you can put things back from Finder.
 - **Saves are atomic**: a crash can't leave a half-written file.
 - **It never writes outside the library folder** (apart from its own small config file), and
-  it can only display images from inside the current library.
+  it can only display images and stream videos from inside the current library.
 
 The library is a normal folder, so back it up like one. Time Machine covers it. iCloud Drive is
 *not* a backup: deletions sync everywhere, and "Optimize Mac Storage" can remove originals.
@@ -148,7 +161,7 @@ make clean                   # remove build output
 2. **Add source photos.** Go to *Source photos* and drop, paste or pick images, then tag them
    by what they show. A photo can have several tags. Open a photo and edit **Name** to rename
    its display label; results have the same field under **Edit**. Names are trimmed and limited
-   to 200 characters. Clear the field to restore the original filename (sources) or date
+   to 200 characters. Clear the field to restore the original filename stem (sources) or date
    (results). Renaming changes metadata only; files and links keep their IDs.
 3. **Create a prompt** with **+ New prompt** (⌘N). Paste the text, give it a title, and choose
    which kinds of photo it needs. Pasting a long block of text into an empty prompt grid starts
@@ -234,7 +247,7 @@ Tools and WebView2). Pull requests are welcome.
 - **`src-tauri/`**: the Rust side, which does all file work through a small set of commands:
   - `library.rs`: storage, imports, thumbnails, Trash.
   - `commands.rs`: the commands the interface calls.
-  - `asset.rs`: serves images, only from the current library.
+  - `asset.rs`: serves images and video byte ranges, only from the current library.
   - `native.rs`: the macOS clipboard.
 - **`docs/spec.md`**: the full design: data format, screens and safety rules.
 

@@ -28,6 +28,7 @@ Global options can appear before or after the command:
   Warnings also go to stderr. Without the flag, successful output is pretty JSON.
 - `where`: `{libraryPath, configPath}`; resolves paths without opening the library.
 - `tags`: array of vocabulary strings.
+- `folders`: array of `{id,name,createdAt}` folder records; supports `--json`.
 - `list [--limit N]`: newest-updated prompts, each with `id`, `title`, `needs`,
   `tags`, and `resultCount`.
 - `add`: saves one prompt and one or more generated results.
@@ -45,16 +46,19 @@ Options for `add`:
 | `--result-name TEXT` | Repeatable; pairs in order with `--result` paths |
 | `--source-name TEXT` | Repeatable; pairs in order with path `--source`s, skipping IDs |
 | `--source PATH_OR_ID` | Repeatable input/reference images |
+| `--source-folder NAME` | Assign newly imported sources to this folder, creating it if missing; reused sources keep their folder |
 | `--source-tags a,b` | Tags applied to newly imported sources |
 | `--chat-url URL` | Conversation URL on every result |
 | `--model TEXT` | Result model; default `agent` |
 | `--note TEXT` | Note on every result |
 
-Names are optional, trimmed, and limited to 200 Unicode characters. Empty names use the
+Source/result paths accept images and MP4/MOV/M4V videos, case-insensitively. Video paste is unavailable.
+
+Names are extension-free, optional, trimmed, and limited to 200 Unicode characters. Empty names use the
 normal fallback. Fewer names leave remaining paths unnamed; use an empty string to skip
 a position. Excess names or overlong names fail before library initialization or writes.
 Reusing a source by bytes or ID never overwrites its name. Names only affect metadata,
-never file paths or links.
+never file paths or links. Matching trailing file extensions are removed on save.
 
 The response contains `promptId`, `created` (false means matched), `resultIds`,
 `sourceIds` (unique), and `sources` (one `{id, reused}` per supplied source).
@@ -75,7 +79,7 @@ unchanged; otherwise the library imports a copy. Repeated sources in one invocat
 deduplicate. All results receive the resolved source IDs.
 
 Unknown needs, prompt tags, and source tags join the vocabulary. Both the app and CLI
-use an exclusive `.prompt-gallery.lock`, created with `create_new`, retrying for up to
+use an exclusive library lock `.prompt-gallery.lock`, created with `create_new`, retrying for up to
 five seconds. Locks older than 30 seconds are reclaimed. A scope guard removes its own lock
 on normal return or error; crashes rely on stale recovery. Under the lock, `library.json`
 is reread and tags are merged, so old app snapshots cannot discard new agent tags.
@@ -141,3 +145,14 @@ The minimal root manifests follow the official
 [marketplace documentation](https://code.claude.com/docs/en/plugin-marketplaces) and
 [plugin manifest reference](https://code.claude.com/docs/en/plugins-reference).
 Skills live at the repository root under `skills/`, not inside `.claude-plugin/`.
+
+Folder create/rename/delete and source moves use the same library lock and atomic metadata
+writes. `--source-folder` matches existing folder names case-insensitively. Empty names and
+names longer than 100 characters are rejected before imports. Reused sources retain folder,
+name and tags. Videos use Quick Look posters and best-effort mdls duration; unavailable posters
+or durations do not prevent saves, linking, live refresh, Trash or backup.
+
+```sh
+pgallery add --library /path/to/library --prompt-file /tmp/prompt.txt --result /tmp/clip.mp4 --source /tmp/reference.mov --source-folder Family --json
+pgallery folders --library /path/to/library --json
+```

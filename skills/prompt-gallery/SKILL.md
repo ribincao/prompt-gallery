@@ -1,6 +1,6 @@
 ---
 name: prompt-gallery
-description: Install or set up Prompt Gallery and save generated images and prompts to its library. Also use immediately after generating or editing images with any tool to offer saving them to Prompt Gallery.
+description: Install or set up Prompt Gallery and save generated images, videos and prompts to its library. Also use immediately after generating or editing images or videos with any tool to offer saving them to Prompt Gallery.
 ---
 
 # Prompt Gallery
@@ -21,16 +21,16 @@ If `/Applications/Prompt Gallery.app` is missing:
 
 If the app already exists but the CLI does not, use the repository's `make install-cli`. A prebuilt download will replace building from source later.
 
-## Save after generating images
+## Save after generating images or videos
 
-After generating or editing images, ask once, briefly: **“Save to Prompt Gallery?”** Respect a decline and do not repeat the offer for the same batch. If saving was already explicitly requested, proceed.
+After generating or editing images or videos, ask once, briefly: **“Save to Prompt Gallery?”** Respect a decline and do not repeat the offer for the same batch. If saving was already explicitly requested, proceed.
 
 On yes:
 
 - Check `pgallery where --json` and `pgallery tags --json`. If the CLI is missing, offer the install workflow above.
 - Write the exact model prompt to a temporary UTF-8 text file outside the library; use `--prompt-file` to preserve newlines and avoid shell interpolation.
-- Run `pgallery add --json --prompt-file <file> --result <image> ...`. Include every output image with a separate `--result`. Include each input/reference image with `--source`.
-- Pass a short descriptive `--result-name` for each output when obvious (for example, "Watercolor Kujira"). Names pair in order with `--result`; use an empty string to skip an unnamed position. Optionally use `--source-name` for path references (source IDs do not consume names). Names are trimmed, at most 200 characters, and never overwrite a reused source name.
+- Run `pgallery add --json --prompt-file <file> --result <image> ...`. Include every output image or video with a separate `--result`. Include each input/reference image or video with `--source`.
+- Pass a short descriptive `--result-name` for each output when obvious (for example, "Watercolor Kujira"). Names pair in order with `--result`; use an empty string to skip an unnamed position. Optionally use `--source-name` for path references (source IDs do not consume names). Use extension-free names. Names are trimmed, at most 200 characters, and never overwrite a reused source name.
 - Suggest `--needs` based on the input photo kind (single, couple, group, pet, landscape, character-sheet, object), and useful `--tags`. Use `--source-tags` for newly imported inputs. Use no needs for text-only generation.
 - Set `--model` to the actual tool/model used; include `--chat-url`, `--source-url`, or `--note` only when known and useful.
 - Quote arguments appropriately for the shell. Download tool outputs to temporary files outside the library if local paths are unavailable.
@@ -45,3 +45,13 @@ Matching prompt text reuses the existing prompt and merges tags/needs. Sources d
 - `pgallery tags --json`: vocabulary for suggestions.
 
 All commands accept `--library <folder>`. Resolution order is flag, `PROMPT_GALLERY_LIBRARY`, then the app's `config.json`. If none is set, open the app once or ask for a library folder.
+
+## Video and source folders
+
+Save generated `.mp4`, `.mov`, and `.m4v` files through the same `pgallery add --result` path;
+include reference videos with `--source`. Do not transcode or copy directly into the library.
+Use `--source-folder <name>` when requested to file new sources; it creates a missing folder
+(case-insensitive name matching). Reused sources keep their existing folder. Inspect folders
+with `pgallery folders --json`. Folder names are trimmed, nonempty and at most 100 characters.
+Poster/duration availability depends on macOS Quick Look/Spotlight; a missing preview does
+not mean the import failed. Report saved IDs from the CLI, not inferred thumbnail success.

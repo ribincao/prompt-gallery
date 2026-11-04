@@ -19,8 +19,8 @@ code paths unless asked.
 | `src/` | The UI: plain HTML/CSS/JS, no framework, no build step, no network requests. `app.js` (screens, dialogs, tag manager), `prompt-cards.js` (stacked cards, drop on card), `result-tools.js` (source picker, multi-select, display names) |
 | `src-tauri/src/library.rs` | **The only code that writes the library.** IDs, atomic writes, imports, thumbnails, Trash, tag lock and tag operations, display names. Tests in `library/tests.rs` |
 | `src-tauri/src/commands.rs` | Tauri commands the UI calls (thin wrappers over `library.rs`), app config |
-| `src-tauri/src/asset.rs` | Serves images to the UI, only from inside the current library |
-| `src-tauri/src/native.rs` | macOS pasteboard: Copy image writes the file URL and PNG data |
+| `src-tauri/src/asset.rs` | Serves images and bounded video byte ranges (GET/HEAD), only from inside the current library |
+| `src-tauri/src/native.rs` | macOS pasteboard: Copy image writes file URL + PNG; Copy video writes file URL only |
 | `src-tauri/src/watcher.rs` | Watches the library, emits `library-changed` for live refresh |
 | `src-tauri/src/cli.rs`, `bin/pgallery.rs` | `pgallery` CLI for agents; tests in `src-tauri/tests/cli.rs` |
 | `skills/prompt-gallery/SKILL.md` | The agent skill (install the app, save generated images via `pgallery`) |
@@ -34,11 +34,11 @@ code paths unless asked.
   Agents saving images must use `pgallery add`, never copy files into the library by hand.
 - **Files are named by ID** (`YYYYMMDD-HHMMSS-xxxx`), each image with a `<id>.json` beside it.
   Results link to source photos by ID. Never rename or move these files; user-facing names are
-  the optional `name` field (falls back to `originalName` for sources, date for results).
+  the optional extension-free `name` field (falls back to the stem of `originalName` for sources, date for results).
 - Imports **copy**, never move. Saves are **atomic** (temp file + rename). Deletes go to the
   **macOS Trash**. The app never writes outside the library except its config file
   (`~/Library/Application Support/com.ribin.prompt-gallery/config.json`).
-- Read-modify-write of `library.json` (the tag vocabulary) goes through `TagLock`
+- Read-modify-write of `library.json` (tag vocabulary and virtual folders) goes through `TagLock`
   (`.prompt-gallery.lock`), shared by the app and `pgallery`. Tag remove/rename/merge edit every
   record under that lock and must never delete images or prompts.
 - Hidden entries (`.DS_Store`, dotfiles) are ignored in all scans.
@@ -90,3 +90,27 @@ Settings in `~/.config/prompt-gallery/r2-backup.env` (never committed). Behaviou
 v1 plus agent integration, tag manager, compact dialogs, display names and the backup script.
 Not done yet: a signed and notarized downloadable release (installs currently build from
 source), and a Windows port (see README).
+
+## Folders and videos
+
+- Sources have one optional `folder` ID; `library.json.folders` defaults to empty. Unknown IDs
+  appear as Unfiled. Create/rename/delete/move use the shared `TagLock`; never move media files.
+- Folder names are trimmed, case-insensitively unique, 1–100 characters. Deleting a folder
+  clears memberships and preserves all media. Multi-record changes can partially complete on I/O failure.
+- Images omit `kind`; videos use `kind: "video"` and optional `durationSeconds`. Accept MP4,
+  MOV and M4V wherever paths are imported; paste remains images only.
+- Video posters use Quick Look followed by sips with one shared eight-second deadline.
+  Timed-out children are killed and reaped; failure is nonfatal and displays a placeholder.
+  Each missing video poster is attempted at most once per process/library/item, including
+  imports and lazy loads; restart the app/CLI to retry a failure. Imports and library loads
+  run on blocking workers in the app so native thumbnail work never runs on the UI thread.
+- Unit tests skip native thumbnails. Every CLI integration-test child must set
+  `PROMPT_GALLERY_DISABLE_POSTERS=1`; never run Quick Look against fake test videos.
+  `scripts/check-video.sh` is the maintainer's isolated generated-video/import/range check.
+  It skips native posters by default; opt in outside the sandbox with
+  `PGALLERY_CHECK_REAL_POSTERS=1 bash scripts/check-video.sh` (bounded by the same timeout).
+  Duration is best-effort via mdls and retried during loading without rewriting old metadata.
+- Asset ranges support single bounded/open/suffix requests and 416. All video responses and open
+  ranges are capped at 4 MiB. HEAD returns full metadata without reading a body.
+- Tests must stay in temp libraries. Native Quick Look and drag/drop require a real-app check
+  when unavailable in the sandbox. No new dependencies are required.

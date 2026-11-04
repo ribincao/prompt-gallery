@@ -1,6 +1,6 @@
 // Test-only in-memory IPC bridge. Never loaded by the app.
 export function installMockBridge() {
-  const lib = { root: "/tmp/Prompt Library", tags: ["single", "group", "pet"], sources: [], prompts: [], warnings: [] };
+  const lib = { root: "/tmp/Prompt Library", folders: [], tags: ["single", "group", "pet"], sources: [], prompts: [], warnings: [] };
   const calls = [];
   const listeners = {};
   let serial = 0;
@@ -28,6 +28,10 @@ export function installMockBridge() {
         calls.push({ cmd, args });
         const p = lib.prompts.find((p) => p.id === (args.promptId || args.id));
         switch (cmd) {
+          case "create_folder": { const f = {id: id(), name: args.name.trim(), createdAt: date()}; lib.folders.push(f); return f; }
+          case "rename_folder": lib.folders.find(f => f.id === args.id).name = args.name.trim(); return;
+          case "delete_folder": lib.folders = lib.folders.filter(f => f.id !== args.id); lib.sources.forEach(s => { if (s.folder === args.id) delete s.folder; }); return;
+          case "move_sources": lib.sources.filter(s => args.ids.includes(s.id)).forEach(s => s.folder = args.folder); return;
           case "get_config":
             return { libraryPath: null };
           case "pick_library_folder":

@@ -10,27 +10,30 @@ pub fn copy_image(path: &Path) -> Outcome<()> {
     };
     use objc2_foundation::{NSArray, NSDictionary, NSString, NSURL};
     let filename = NSString::from_str(&path.to_string_lossy());
-    let image = NSImage::initWithContentsOfFile(NSImage::alloc(), &filename)
-        .ok_or("macOS could not decode this image")?;
-    let tiff = image
-        .TIFFRepresentation()
-        .ok_or("Could not read image pixels")?;
-    let bitmap =
-        NSBitmapImageRep::imageRepWithData(&tiff).ok_or("Could not decode image pixels")?;
-    // An empty options dictionary is valid for PNG encoding. No files are written.
-    let png = unsafe {
-        bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
-    }
-    .ok_or("Could not encode PNG")?;
     let url = NSURL::fileURLWithPath(&filename)
         .absoluteString()
         .ok_or("Could not encode file URL")?;
     let item = NSPasteboardItem::new();
     // These AppKit constants live for the process lifetime.
-    let valid = unsafe {
-        item.setString_forType(&url, NSPasteboardTypeFileURL)
-            && item.setData_forType(&png, NSPasteboardTypePNG)
-    };
+    let mut valid = unsafe { item.setString_forType(&url, NSPasteboardTypeFileURL) };
+    if !crate::library::is_video(path) {
+        let image = NSImage::initWithContentsOfFile(NSImage::alloc(), &filename)
+            .ok_or("macOS could not decode this image")?;
+        let tiff = image
+            .TIFFRepresentation()
+            .ok_or("Could not read image pixels")?;
+        let bitmap =
+            NSBitmapImageRep::imageRepWithData(&tiff).ok_or("Could not decode image pixels")?;
+        // An empty options dictionary is valid for PNG encoding. No files are written.
+        let png = unsafe {
+            bitmap.representationUsingType_properties(
+                NSBitmapImageFileType::PNG,
+                &NSDictionary::new(),
+            )
+        }
+        .ok_or("Could not encode PNG")?;
+        valid = valid && unsafe { item.setData_forType(&png, NSPasteboardTypePNG) };
+    }
     if !valid {
         return Err("Could not prepare clipboard image".into());
     }

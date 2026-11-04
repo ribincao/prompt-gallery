@@ -28,6 +28,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_drag::init())
         .invoke_handler(tauri::generate_handler![
+            commands::create_folder,
+            commands::rename_folder,
+            commands::delete_folder,
+            commands::move_sources,
             commands::get_config,
             commands::set_library,
             commands::pick_library_folder,

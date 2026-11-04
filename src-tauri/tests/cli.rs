@@ -7,6 +7,7 @@ use tempfile::{tempdir, TempDir};
 
 fn run(config: &TempDir, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_pgallery"))
+        .env("PROMPT_GALLERY_DISABLE_POSTERS", "1")
         .env_remove("PROMPT_GALLERY_LIBRARY")
         .env("PROMPT_GALLERY_CONFIG_DIR", config.path())
         .args(args)
@@ -167,6 +168,7 @@ fn resolution_and_errors() {
         override_.path().to_str().unwrap()
     );
     let env_out = Command::new(env!("CARGO_BIN_EXE_pgallery"))
+        .env("PROMPT_GALLERY_DISABLE_POSTERS", "1")
         .env("PROMPT_GALLERY_CONFIG_DIR", config.path())
         .env("PROMPT_GALLERY_LIBRARY", override_.path())
         .args(["where", "--json"])
@@ -201,6 +203,7 @@ fn concurrent_processes_merge_tags_and_prompt_file_is_exact() {
         .into_iter()
         .map(|tag| {
             Command::new(env!("CARGO_BIN_EXE_pgallery"))
+                .env("PROMPT_GALLERY_DISABLE_POSTERS", "1")
                 .env_remove("PROMPT_GALLERY_LIBRARY")
                 .env("PROMPT_GALLERY_CONFIG_DIR", config.path())
                 .args([
@@ -395,4 +398,63 @@ fn name_flags_pair_paths_and_preserve_reused_sources() {
         assert!(!run(&config, &args).status.success());
         assert_eq!(fs::read_dir(untouched.path()).unwrap().count(), 0);
     }
+}
+
+#[test]
+fn video_folder_flag_preserves_reused_source_folder() {
+    let config = tempdir().unwrap();
+    let library = tempdir().unwrap();
+    let input = tempdir().unwrap();
+    let video = input.path().join("video.MP4");
+    fs::write(&video, b"video fixture").unwrap();
+    let root = library.path().to_str().unwrap();
+    let path = video.to_str().unwrap();
+    let first = ok(
+        &config,
+        &[
+            "add",
+            "--library",
+            root,
+            "--prompt-text",
+            "video",
+            "--result",
+            path,
+            "--source",
+            path,
+            "--source-folder",
+            "Family",
+            "--source-name",
+            "Clip.mp4",
+            "--json",
+        ],
+    );
+    let folders = ok(&config, &["folders", "--library", root, "--json"]);
+    assert_eq!(folders[0]["name"], "Family");
+    let source_path = library
+        .path()
+        .join("sources")
+        .join(format!("{}.json", first["sourceIds"][0].as_str().unwrap()));
+    let source: Value = serde_json::from_slice(&fs::read(&source_path).unwrap()).unwrap();
+    assert_eq!(source["folder"], folders[0]["id"]);
+    assert_eq!(source["kind"], "video");
+    assert_eq!(source["name"], "Clip");
+    ok(
+        &config,
+        &[
+            "add",
+            "--library",
+            root,
+            "--prompt-text",
+            "video",
+            "--result",
+            path,
+            "--source",
+            path,
+            "--source-folder",
+            "Other",
+            "--json",
+        ],
+    );
+    let after: Value = serde_json::from_slice(&fs::read(source_path).unwrap()).unwrap();
+    assert_eq!(after, source);
 }

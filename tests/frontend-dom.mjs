@@ -11,6 +11,7 @@ const dom = new JSDOM(await readFile(new URL("../src/index.html", import.meta.ur
 });
 const w = dom.window,
   d = w.document;
+w.HTMLMediaElement.prototype.pause = function () {};
 w.HTMLDialogElement.prototype.showModal = function () {
   this.open = true;
 };
@@ -66,9 +67,10 @@ try {
   $("[name=tags][value=single]").checked = true;
   await save();
   assert.equal(w.testState.lib.sources[0].tags[0], "single");
+  await act("open-folder");
   await act("source");
   await act("copy-image");
-  assert.equal($("[name=name]").value, "Original.png");
+  assert.equal($("[name=name]").value, "Original");
   input("name", "  Kujira <bucket>  ");
   input("note", "A reference photo");
   await save();
@@ -83,8 +85,9 @@ try {
   }
   $("#search").value = "";
   $("#search").dispatchEvent(new w.Event("input"));
+  await act("open-folder");
   await act("source");
-  assert.match($("#dialog-form").textContent, /Original file: Original.png/);
+  assert.match($("#dialog-form").textContent, /Original file: Original/);
   input("name", "🐈".repeat(201));
   $("#dialog-form").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
   await tick();
@@ -131,7 +134,7 @@ try {
   assert.match($(".source-uses").textContent, /Watercolor <cat>/);
   input("name", "   ");
   await save();
-  assert.equal($(".source-card").getAttribute("aria-label"), "Preview Original.png");
+  assert.equal($(".source-card").getAttribute("aria-label"), "Preview Original");
   await act("source");
   assert.doesNotMatch($("#dialog-form").textContent, /Original file:/);
   input("name", "Kujira <bucket>");
@@ -171,6 +174,7 @@ try {
   $("#search").value = "";
   $("#search").dispatchEvent(new w.Event("input"));
   await click("#nav-sources");
+  await act("open-folder");
   $(".source-card").dispatchEvent(
     new w.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 50 }),
   );
@@ -365,7 +369,7 @@ try {
   await click(`.result-card[data-id="${newResult.id}"]`);
   assert.equal(d.querySelectorAll(".linked-source img").length, 2);
   await act("light-source");
-  assert.match($("#modal-content h2").textContent, /Group.png/);
+  assert.match($("#modal-content h2").textContent, /Group/);
   await act("close-modal");
   await click(`.result-card[data-id="${newResult.id}"]`);
   await act("edit-result");
@@ -507,6 +511,52 @@ try {
   await act("close-modal");
   console.log("PASS: header actions, Cmd+Enter, tag add/rename/merge/remove/cancel, active filter updates, partial failure visibility");
   console.log("PASS: live refresh, unchanged snapshot, scroll/detail preservation, dialog/lightbox deferral, stale-library events");
+  // Folder navigation, flat filtering, multi-select moves, video previews and legacy names.
+  await click("#nav-sources");
+  $("#search").value = ""; $("#search").dispatchEvent(new w.Event("input"));
+  await click('[data-action="filter"][data-tag=""]');
+  assert.ok($(".folder-card")); assert.equal($(".source-card"), null);
+  await act("new-folder"); input("name", "Family"); await save();
+  const fid = w.testState.lib.folders[0].id;
+  await click(`[data-action="open-folder"][data-id="${fid}"]`);
+  assert.match($("h1").textContent, /Source photos.*Family/);
+  await act("pick-sources"); await wait(() => $("#modal").open, "folder import"); await save();
+  assert.equal(w.testState.lib.sources[0].folder, fid);
+  await act("select-sources"); await act("source"); await act("move-sources");
+  input("folder", ""); await save();
+  assert.equal(w.testState.lib.sources[0].folder, null);
+  await act("source-root");
+  $("#search").value = "Original"; $("#search").dispatchEvent(new w.Event("input"));
+  assert.ok($(".source-card")); assert.equal($(".folder-card"), null);
+  assert.equal($(".folder-label").textContent, "Unfiled");
+  $("#search").value = ""; $("#search").dispatchEvent(new w.Event("input"));
+  assert.ok($(".folder-card"));
+  const movie = w.testState.lib.sources[0];
+  Object.assign(movie, { kind: "video", name: "Clip.MOV", originalName: "Clip.MOV", file: `${movie.id}.MOV`, path: `${w.testState.lib.root}/sources/${movie.id}.MOV`, durationSeconds: 65 });
+  await click("#reload"); await click('[data-action="open-folder"][data-id=""]');
+  assert.match($(".video-badge").textContent, /1:05/);
+  await click(`[data-action="source"][data-id="${movie.id}"]`);
+  assert.equal($("[name=name]").value, "Clip"); assert.ok($("video[controls][preload=metadata]"));
+  assert.equal($("video").autoplay, false);
+  assert.equal($('[data-action="copy-image"]').textContent, "Copy video");
+  input("name", "New.mov"); await save(); assert.equal(movie.name, "New");
+  await act("source-root");
+  await click(`[data-action="folder-menu"][data-id="${fid}"]`); await act("rename-folder"); input("name", "Home"); await save();
+  assert.equal(w.testState.lib.folders[0].name, "Home");
+  await click(`[data-action="folder-menu"][data-id="${fid}"]`); await act("delete-folder"); await save();
+  assert.equal(w.testState.lib.folders.length, 0);
+  const videoPrompt = w.testState.lib.prompts.find(p => p.results.length);
+  const videoResult = videoPrompt.results[0];
+  Object.assign(videoResult, { kind: "video", file: `${videoResult.id}.mp4`, name: "Result.mp4", durationSeconds: 12, thumbnail: null });
+  await click("#reload"); await click("#nav-prompts");
+  await click(`[data-action="prompt"][data-id="${videoPrompt.id}"]`);
+  assert.ok($(".result-card .video-badge"));
+  await click(`[data-action="result"][data-id="${videoResult.id}"]`);
+  assert.ok($("#lightbox video[controls]"));
+  assert.equal($('[data-action="copy-result"]').textContent, "Copy video");
+  await act("copy-result"); await act("close-lightbox");
+  console.log("PASS: folder grid, breadcrumb, import membership, Move to, cross-folder filters, rename/delete, extension-free names, source/result video cards and playback controls");
+
   console.log(
     "PASS: first run, source import/tag/edit/copy, exact prompt text, safe HTML, matching photos, result defaults, drop, lightbox arrows, chat, favorites/search, context menu, Trash, missing references, image/text paste, Cmd+F and Cmd+N, 0/1/2/5-result cards, thumbnail cap/order, Retina drop targeting/highlights, card picker, hovered/focused paste, stale-target rejection, matching-first thumbnail toggles, lightbox source previews, bulk link/clear preserving other metadata, Cmd/Shift selection, any-tag matching, fallback strip, and tooltip/reveal cleanup.",
   );

@@ -18,7 +18,16 @@ pub const BUILTIN_TAGS: &[&str] = &[
     "object",
 ];
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Folder {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LibraryMeta {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folders: Vec<Folder>,
     pub app: String,
     pub version: u32,
     pub tags: Vec<String>,
@@ -28,7 +37,13 @@ pub struct LibraryMeta {
 pub struct Source {
     pub id: String,
     pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<f64>,
     pub original_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub tags: Vec<String>,
@@ -70,6 +85,10 @@ pub struct ResultInput {
 pub struct ResultMeta {
     pub id: String,
     pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<f64>,
     #[serde(flatten)]
     pub fields: ResultInput,
     pub created_at: String,
@@ -90,6 +109,7 @@ pub struct PromptRecord {
 }
 #[derive(Debug, Serialize)]
 pub struct Library {
+    pub folders: Vec<Folder>,
     pub root: String,
     pub tags: Vec<String>,
     pub sources: Vec<ImageRecord<Source>>,
@@ -211,6 +231,7 @@ pub fn open_library(path: &Path, confirm_nonempty: bool) -> Outcome<PathBuf> {
         write_json(
             &marker_path,
             &LibraryMeta {
+                folders: vec![],
                 app: "prompt-gallery".into(),
                 version: 1,
                 tags: BUILTIN_TAGS.iter().map(|s| s.to_string()).collect(),
@@ -263,11 +284,77 @@ fn extension(path: &Path) -> Outcome<String> {
         .extension()
         .and_then(|s| s.to_str())
         .ok_or("Image has no extension")?;
-    if !["jpg", "jpeg", "png", "webp", "heic", "gif"].contains(&ext.to_lowercase().as_str()) {
+    if ![
+        "jpg", "jpeg", "png", "webp", "heic", "gif", "mp4", "mov", "m4v",
+    ]
+    .contains(&ext.to_lowercase().as_str())
+    {
         return Err("Unsupported image format (use jpg, jpeg, png, webp, heic, or gif)".into());
     }
     Ok(ext.into())
 }
+// Poll instead of output()/wait_with_output(): Quick Look can stop responding forever.
+// Null streams avoid pipe backpressure and keeping a descendant's output pipe open.
+fn wait_with_timeout(
+    child: &mut std::process::Child,
+    timeout: std::time::Duration,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(Some(status)),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(
+                    std::time::Duration::from_millis(20)
+                        .min(deadline.saturating_duration_since(std::time::Instant::now())),
+                );
+            }
+            Ok(None) => {
+                // kill may race with natural completion; wait still reaps the child.
+                let _ = child.kill();
+                child.wait()?;
+                return Ok(None);
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        }
+    }
+}
+#[cfg(all(target_os = "macos", not(test)))]
+fn run_thumbnail_command(
+    command: &mut std::process::Command,
+    deadline: std::time::Instant,
+) -> Outcome<bool> {
+    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+    if remaining.is_zero() {
+        return Ok(false);
+    }
+    let mut child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(err)?;
+    Ok(wait_with_timeout(&mut child, remaining)
+        .map_err(err)?
+        .is_some_and(|s| s.success()))
+}
+fn claim_poster_attempt(
+    attempts: &std::sync::Mutex<std::collections::HashSet<PathBuf>>,
+    path: &Path,
+) -> bool {
+    attempts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(path.to_path_buf())
+}
+#[cfg(all(target_os = "macos", not(test)))]
+static POSTER_ATTEMPTS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<PathBuf>>> =
+    std::sync::OnceLock::new();
+
 fn thumbnail(root: &Path, id: &str, image: &Path) -> Outcome<Option<String>> {
     fs::create_dir_all(safe(root, ".thumbs")?).map_err(err)?;
     let target = safe(root, format!(".thumbs/{id}.jpg"))?;
@@ -276,21 +363,68 @@ fn thumbnail(root: &Path, id: &str, image: &Path) -> Outcome<Option<String>> {
     }
     #[cfg(all(target_os = "macos", not(test)))]
     {
-        let out = std::process::Command::new("/usr/bin/sips")
-            .args(["-Z", "480", "-s", "format", "jpeg"])
-            .arg(image)
-            .arg("--out")
-            .arg(&target)
-            .output()
-            .map_err(err)?;
-        if !out.status.success() {
-            return Err(format!(
-                "Thumbnail unavailable for {}: {}",
-                image.display(),
-                String::from_utf8_lossy(&out.stderr)
-            ));
+        // Integration-test binaries are built without cfg(test), so they explicitly
+        // disable real poster subprocesses through this seam as well.
+        let video = is_video(image);
+        if video
+            && (std::env::var_os("PROMPT_GALLERY_DISABLE_POSTERS").is_some()
+                || !claim_poster_attempt(POSTER_ATTEMPTS.get_or_init(Default::default), &target))
+        {
+            return Ok(None);
         }
-        Ok(Some(target.to_string_lossy().into()))
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        let scratch = safe(
+            root,
+            format!(".thumbs/.video-{id}-{:016x}", rand::random::<u64>()),
+        )?;
+        let staged = safe(
+            root,
+            format!(".thumbs/.poster-{id}-{:016x}.jpg", rand::random::<u64>()),
+        )?;
+        let result = (|| -> Outcome<Option<String>> {
+            let input = if video {
+                fs::create_dir(&scratch).map_err(err)?;
+                if !run_thumbnail_command(
+                    std::process::Command::new("/usr/bin/qlmanage")
+                        .args(["-t", "-s", "480", "-o"])
+                        .arg(&scratch)
+                        .arg(image),
+                    deadline,
+                )? {
+                    return Ok(None);
+                }
+                let Some(poster) = fs::read_dir(&scratch)
+                    .map_err(err)?
+                    .filter_map(Result::ok)
+                    .map(|e| e.path())
+                    .find(|p| p.is_file())
+                else {
+                    return Ok(None);
+                };
+                poster
+            } else {
+                image.to_path_buf()
+            };
+            // Conversion shares the same eight-second budget, including for images.
+            if !run_thumbnail_command(
+                std::process::Command::new("/usr/bin/sips")
+                    .args(["-Z", "480", "-s", "format", "jpeg"])
+                    .arg(&input)
+                    .arg("--out")
+                    .arg(&staged),
+                deadline,
+            )? {
+                return Ok(None);
+            }
+            fs::rename(&staged, &target).map_err(err)?;
+            Ok(Some(target.to_string_lossy().into()))
+        })();
+        // The child has exited or been killed and reaped before cleanup.
+        let _ = fs::remove_file(&staged);
+        if video {
+            let _ = fs::remove_dir_all(&scratch);
+        }
+        result
     }
     #[cfg(any(not(target_os = "macos"), test))]
     {
@@ -350,6 +484,7 @@ pub fn load_library(root: &Path) -> Outcome<Library> {
     let m = marker(root)?;
     let mut lib = Library {
         root: root.to_string_lossy().into(),
+        folders: m.folders,
         tags: m.tags,
         sources: vec![],
         prompts: vec![],
@@ -361,7 +496,10 @@ pub fn load_library(root: &Path) -> Outcome<Library> {
         }
         let result = (|| {
             owned_file(root, &p)?;
-            let s: Source = read(&p)?;
+            let mut s: Source = read(&p)?;
+            if s.kind.as_deref() == Some("video") && s.duration_seconds.is_none() {
+                s.duration_seconds = media_duration(&safe(root, format!("sources/{}", s.file))?);
+            }
             valid_id(&s.id)?;
             if p.file_stem().and_then(|s| s.to_str()) != Some(&s.id) {
                 return Err("Source ID does not match filename".into());
@@ -401,7 +539,11 @@ pub fn load_library(root: &Path) -> Outcome<Library> {
                 }
                 let result = (|| {
                     owned_file(root, &r)?;
-                    let m: ResultMeta = read(&r)?;
+                    let mut m: ResultMeta = read(&r)?;
+                    if m.kind.as_deref() == Some("video") && m.duration_seconds.is_none() {
+                        m.duration_seconds =
+                            media_duration(&safe(root, format!("{dir}/{}", m.file))?);
+                    }
                     valid_id(&m.id)?;
                     if r.file_stem().and_then(|s| s.to_str()) != Some(&m.id) {
                         return Err("Result ID does not match filename".into());
@@ -681,6 +823,9 @@ pub fn import_source(
     let id = id(root)?;
     let (file, original_name) = copy_image(root, "sources", &id, path, bytes)?;
     let s = Source {
+        folder: None,
+        kind: media_kind(&file),
+        duration_seconds: media_duration(&safe(root, format!("sources/{file}"))?),
         id,
         file,
         original_name,
@@ -714,7 +859,7 @@ pub fn update_source(
     if s.id != id {
         return Err("Source ID mismatch".into());
     }
-    s.name = normalize_name(name)?;
+    s.name = normalize_media_name(name, &s.file)?;
     s.tags = tags;
     s.note = note;
     write_json(&path, &s)?;
@@ -777,7 +922,10 @@ pub fn add_result(
     bytes: Option<&[u8]>,
     mut fields: ResultInput,
 ) -> Outcome<String> {
-    fields.name = normalize_name(fields.name)?;
+    fields.name = normalize_media_name(
+        fields.name,
+        path.and_then(|p| p.to_str()).unwrap_or("pasted.png"),
+    )?;
     valid_id(prompt_id)?;
     let _: PromptMeta = read(&safe(root, format!("prompts/{prompt_id}/meta.json"))?)?;
     for sid in &fields.source_photos {
@@ -787,9 +935,12 @@ pub fn add_result(
     let id = id(root)?;
     let dir = format!("prompts/{prompt_id}/results");
     let (file, _) = copy_image(root, &dir, &id, path, bytes)?;
+    fields.name = normalize_media_name(fields.name, &file)?;
     write_json(
         &safe(root, format!("{dir}/{id}.json"))?,
         &ResultMeta {
+            kind: media_kind(&file),
+            duration_seconds: media_duration(&safe(root, format!("{dir}/{file}"))?),
             id: id.clone(),
             file: file.clone(),
             fields,
@@ -805,7 +956,6 @@ pub fn update_result(
     id: &str,
     mut fields: ResultInput,
 ) -> Outcome<()> {
-    fields.name = normalize_name(fields.name)?;
     valid_id(prompt_id)?;
     valid_id(id)?;
     let path = safe(root, format!("prompts/{prompt_id}/results/{id}.json"))?;
@@ -816,6 +966,7 @@ pub fn update_result(
     for sid in &fields.source_photos {
         valid_id(sid)?;
     }
+    fields.name = normalize_media_name(fields.name, &m.file)?;
     m.fields = fields;
     write_json(&path, &m)
 }
@@ -926,4 +1077,146 @@ impl Drop for TagLock {
             let _ = fs::remove_file(&self.path);
         }
     }
+}
+
+pub fn is_video(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| ["mp4", "mov", "m4v"].contains(&e.to_ascii_lowercase().as_str()))
+}
+fn media_kind(file: &str) -> Option<String> {
+    is_video(Path::new(file)).then(|| "video".into())
+}
+fn media_duration(path: &Path) -> Option<f64> {
+    if !is_video(path) {
+        return None;
+    }
+    let out = std::process::Command::new("/usr/bin/mdls")
+        .args(["-raw", "-name", "kMDItemDurationSeconds"])
+        .arg(path)
+        .output()
+        .ok()?;
+    let n: f64 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+    (n.is_finite() && n >= 0.0).then_some(n)
+}
+pub fn normalize_media_name(name: Option<String>, file: &str) -> Outcome<Option<String>> {
+    let mut name = name.unwrap_or_default().trim().to_string();
+    if let Some(ext) = Path::new(file).extension().and_then(|s| s.to_str()) {
+        let suffix = format!(".{ext}");
+        while name.to_lowercase().ends_with(&suffix.to_lowercase()) {
+            name.truncate(name.len() - suffix.len());
+            name = name.trim().into();
+        }
+    }
+    normalize_name(Some(name))
+}
+pub fn folder_name(name: &str) -> Outcome<String> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 100 {
+        return Err("Folder names must contain 1–100 characters".into());
+    }
+    Ok(name.into())
+}
+pub fn create_folder(root: &Path, name: &str, reuse: bool) -> Outcome<Folder> {
+    let name = folder_name(name)?;
+    let _lock = TagLock::acquire(root)?;
+    let mut m = marker(root)?;
+    if let Some(f) = m
+        .folders
+        .iter()
+        .find(|f| f.name.to_lowercase() == name.to_lowercase())
+    {
+        return if reuse {
+            Ok(f.clone())
+        } else {
+            Err("Folder name already exists".into())
+        };
+    }
+    let fid = loop {
+        let candidate = id(root)?;
+        if !m.folders.iter().any(|f| f.id == candidate) {
+            break candidate;
+        }
+    };
+    let folder = Folder {
+        id: fid,
+        name,
+        created_at: now(),
+    };
+    m.folders.push(folder.clone());
+    write_json(&safe(root, "library.json")?, &m)?;
+    Ok(folder)
+}
+pub fn rename_folder(root: &Path, id: &str, name: &str) -> Outcome<()> {
+    let name = folder_name(name)?;
+    let _lock = TagLock::acquire(root)?;
+    let mut m = marker(root)?;
+    if m.folders
+        .iter()
+        .any(|f| f.id != id && f.name.to_lowercase() == name.to_lowercase())
+    {
+        return Err("Folder name already exists".into());
+    }
+    m.folders
+        .iter_mut()
+        .find(|f| f.id == id)
+        .ok_or("Folder not found")?
+        .name = name;
+    write_json(&safe(root, "library.json")?, &m)
+}
+pub fn move_sources(root: &Path, ids: &[String], folder: Option<String>) -> Outcome<()> {
+    let lock = TagLock::acquire(root)?;
+    let m = marker(root)?;
+    if folder
+        .as_ref()
+        .is_some_and(|id| !m.folders.iter().any(|f| &f.id == id))
+    {
+        return Err("Folder not found".into());
+    }
+    let mut records = vec![];
+    for id in ids {
+        valid_id(id)?;
+        let path = safe(root, format!("sources/{id}.json"))?;
+        let mut value: serde_json::Value = read(&path)?;
+        let source: Source = serde_json::from_value(value.clone()).map_err(err)?;
+        if source.id != *id {
+            return Err("Source ID mismatch".into());
+        }
+        if let Some(f) = &folder {
+            value["folder"] = f.clone().into();
+        } else {
+            value.as_object_mut().unwrap().remove("folder");
+        }
+        records.push((path, value));
+    }
+    for (n, (path, value)) in records.iter().enumerate() {
+        lock.renew()?;
+        write_json(path, value)
+            .map_err(|e| format!("{e}; {n} sources already moved; reload before retrying"))?;
+    }
+    Ok(())
+}
+pub fn delete_folder(root: &Path, id: &str) -> Outcome<()> {
+    let lock = TagLock::acquire(root)?;
+    let mut m = marker(root)?;
+    if !m.folders.iter().any(|f| f.id == id) {
+        return Err("Folder not found".into());
+    }
+    let mut warnings = vec![];
+    let records = tag_records(root, &mut warnings, &lock)?;
+    if !warnings.is_empty() {
+        return Err(warnings.join("; "));
+    }
+    let mut count = 0;
+    for (path, mut value, is_prompt) in records {
+        lock.renew()?;
+        if !is_prompt && value["folder"].as_str() == Some(id) {
+            value.as_object_mut().unwrap().remove("folder");
+            write_json(&path, &value)
+                .map_err(|e| format!("{e}; {count} sources already unfiled"))?;
+            count += 1;
+        }
+    }
+    m.folders.retain(|f| f.id != id);
+    write_json(&safe(root, "library.json")?, &m)
 }

@@ -171,8 +171,8 @@ Search matches title, prompt text, tags and notes. The data model is unchanged.
 folder. Pasting a long block of text into the empty grid also opens this form with the
 text filled in.
 
-**Source photos view**: a grid of thumbnails, filterable by tag. Add via paste, drop or
-picker; newly added photos open a tag picker straight away. Click a photo to edit its name, tags
+**Source photos view**: a one-level virtual folder grid with newest-item covers, counts, Unfiled (when nonempty), and New folder. Folder items have a root breadcrumb. Search/tag filters show a flat cross-folder list with folder labels. Add via paste, drop or
+picker; imports inside a folder inherit it. Select/Cmd/Shift selection supports Move to…; folder menus support Rename and Delete. Deletion moves memberships to Unfiled and keeps media. Newly added photos open a tag picker straight away. Click a photo to edit its name, tags
 and note, see which results used it, reveal it in Finder, or delete it.
 
 **Empty and first-run states**: first launch shows "Choose a library folder" with the
@@ -180,8 +180,8 @@ suggested default and a short line about why the data lives outside the app.
 
 ## Import and export
 
-- **Pick files**: native file dialog, multiple selection, images only
-  (jpg, jpeg, png, webp, heic, gif).
+- **Pick files**: native file dialog, multiple selection, images and videos
+  (jpg, jpeg, png, webp, heic, gif, mp4, mov, m4v; case-insensitive).
 - **Drop files**: Tauri's drag-drop event (it gives real file paths). Dropping on the
   Source photos view adds sources; dropping on a prompt adds results.
 - **Paste**: an image on the clipboard (e.g. copied from ChatGPT) is read in the frontend and
@@ -228,7 +228,7 @@ crate is needed. Grids show thumbnails; the lightbox shows the original.
   never touches the filesystem directly.
 - Images are shown with Tauri's asset protocol (`convertFileSrc`). A guarded handler for
   the `asset` URI scheme checks the active canonical library root on every request and
-  rejects external paths, symlinks, and non-images. This replaces the stock additive
+  rejects external paths, symlinks, traversal, and extensions outside the media whitelist. This replaces the stock additive
   asset-scope responder so first choice and library switches require no process restart.
   Automatic scope grants from file drops cannot bypass the current-root check.
 
@@ -262,7 +262,7 @@ Cmd+Enter submit; Esc cancels. The prompt textarea starts at four rows and grows
 12, then scrolls internally. Needs and their compact add field share a row; style tags and
 source URL share a row; notes use two rows. Source previews and result-photo pickers are
 shorter. Source and result edit forms begin with a Name field prefilled with the display
-name. A source with a custom name shows its original filename underneath. Saving an
+name without a matching extension. A source with a custom name shows its original filename stem underneath. Saving an
 untouched fallback does not store it as a custom name. At small window sizes only the body scrolls, leaving actions visible; the tag
 manager scrolls its list. Light and dark mode retain the system-blue Photos-neutral style.
 The layout target is a new prompt with about 15 tags fitting at 1200×800; the browser smoke
@@ -297,3 +297,50 @@ Plugins and crates: `tauri-plugin-dialog`, `tauri-plugin-opener`, `tauri-plugin-
 - Sync, accounts, sharing, a web version.
 - Built-in backup to the cloud (documented as a manual step instead).
 - Prompt variables / templates (e.g. `{subject}`) — a likely v2 feature.
+
+## Backward-compatible folder and video metadata
+
+`library.json` optionally contains `folders` (absent means `[]`):
+```json
+{"app":"prompt-gallery","version":1,"tags":[],"folders":[{"id":"20261105-120000-abcd","name":"Family","createdAt":"2026-11-05T12:00:00+08:00"}]}
+```
+Source JSON adds optional `folder`, a folder ID; missing/unknown IDs render as Unfiled.
+There is one level and at most one membership per source. Results have no folder field.
+Folders use the existing ID scheme, atomic JSON writes and `.prompt-gallery.lock` (`TagLock`).
+Create/rename validate trimmed, nonempty names of at most 100 Unicode characters, unique
+case-insensitively. Delete clears source memberships before removing the folder. Bulk moves
+validate inputs before writing; I/O failures can leave earlier changes applied and are reported.
+
+Both source and result JSON support:
+```json
+{"kind":"video","durationSeconds":1.25}
+```
+These are additional fields alongside existing metadata. Images omit both fields; absent kind
+means image. `durationSeconds` is optional, finite and nonnegative, measured by mdls when
+available, retried in loaded records if missing (no migration writes). Original media bytes,
+IDs and paths are unchanged. Legacy `name` fields are displayed without the matching file
+extension; saving stores a trimmed stem, limited to 200 characters. `originalName` is preserved.
+
+Video thumbnails run `qlmanage -t -s 480 -o <private scratch dir> <file>`, convert its poster
+with sips to `.thumbs/<id>.jpg`, and remove scratch output. Quick Look and sips share an
+8-second deadline: spawn, poll `try_wait`, kill on timeout, and reap before cleanup. Child
+stdio is discarded to prevent pipe stalls. Failure never fails an import. A process-local,
+thread-safe set keyed by the library thumbnail path limits missing video posters to one
+attempt per process, whether triggered by import or lazy loading; restart to retry failures.
+App imports and library loads run through `spawn_blocking`, keeping native thumbnail work
+off the UI thread. Unit tests skip real thumbnails, and CLI integration-test processes set
+`PROMPT_GALLERY_DISABLE_POSTERS=1`. The generated-video maintainer script disables native
+posters unless `PGALLERY_CHECK_REAL_POSTERS=1` is explicitly supplied. Cards never use video originals as image fallback. Video
+previews use `<video controls preload="metadata">` with no autoplay; closing pauses playback.
+Copy video puts only the original file URL on NSPasteboard; image copy also supplies PNG.
+
+Asset requests are GET/HEAD only. Video MIME types are video/mp4, video/quicktime and
+video/x-m4v. All successful responses advertise Accept-Ranges: bytes. Single ranges support
+start-end, start-, and -suffix forms, returning 206 with Content-Range and Content-Length.
+Invalid/unsatisfiable or multiple ranges return 416 with `bytes */<length>`. Open ranges are
+capped at 4 MiB. Initial video GETs larger than 4 MiB return the first bounded 206 segment;
+explicit bounded/suffix ranges read only the requested slice, capped at 4 MiB as well. HEAD ignores Range and reports
+the complete representation length with no body read. Current-library guards apply before reads.
+
+Commands added: `create_folder(name)`, `rename_folder(id,name)`, `delete_folder(id)`,
+`move_sources(ids,folder)` (null means Unfiled). All storage mutation stays in library.rs.
