@@ -85,6 +85,28 @@ Safety rules the app follows:
 The library is a normal folder, so back it up like one. Time Machine covers it. iCloud Drive is
 *not* a backup: deletions sync everywhere, and "Optimize Mac Storage" can remove originals.
 
+### Off-site backup to a bucket (optional)
+
+[`scripts/backup-r2.sh`](scripts/backup-r2.sh) copies the library to a private S3-compatible
+bucket, such as Cloudflare R2 (10 GB free). It uploads only new or changed files and **never
+deletes anything in the bucket**, so a photo you delete locally is still there. Thumbnails are
+skipped; the app rebuilds them.
+
+1. Create a private bucket and an API token limited to it (R2: *Manage API tokens*, Object
+   Read & Write), then install the AWS CLI (`brew install awscli`).
+2. Put the settings in `~/.config/prompt-gallery/r2-backup.env` (`chmod 600`, never commit it):
+   ```
+   R2_ACCOUNT_ID=...
+   R2_ACCESS_KEY_ID=...
+   R2_SECRET_ACCESS_KEY=...
+   R2_BUCKET=your-bucket
+   ```
+3. Run `scripts/backup-r2.sh` (or `--dryrun` first). To run it daily, add a launchd job that
+   calls the script; macOS runs a missed job when the Mac wakes up.
+
+Restore everything into an empty folder with `scripts/backup-r2.sh --restore <folder>`, then
+choose that folder as the library in the app.
+
 ## Install and run (macOS)
 
 There's no signed download yet; you build it yourself. You need:
