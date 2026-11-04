@@ -30,6 +30,15 @@ into ChatGPT, and paste the result back in.
 
 ![Prompt detail with copy button and suggested source photos](docs/screenshots/prompt-detail.png)
 
+### Copy a photo, paste it into ChatGPT
+
+No more hunting for the original file in Finder or Photos. Open any source photo, click
+**Copy image** (or select it and press ⌘C), then press ⌘V in ChatGPT. The app puts the original
+file on the clipboard, so ChatGPT gets the full-quality photo, HEIC included. Prefer dragging?
+Drag the thumbnail straight into the chat instead.
+
+![Source photo with Copy image, ready to paste into ChatGPT](docs/screenshots/copy-image.png)
+
 ## Features
 
 - **Prompt grid with stacked results.** Each card shows a prompt's newest results as a little
@@ -38,8 +47,8 @@ into ChatGPT, and paste the result back in.
 - **Suggested source photos.** A prompt says what it needs (`single`, `couple`, `group`, `pet`,
   `landscape`, `character-sheet`, `object`, or your own tags); the app shows photos tagged with
   any of them.
-- **Send a photo to ChatGPT** by dragging it out of the app, or with ⌘C and paste. You always
-  send the original; nothing is exported.
+- **Copy and paste a photo into ChatGPT** with one click (or ⌘C), or drag it straight into the
+  chat. No digging for the original file; you always send the original, and nothing is exported.
 - **Add results fast**: paste a copied image with ⌘V, drop files onto a prompt card, or pick
   them. A ChatGPT link on your clipboard is filled in automatically.
 - **Link results to source photos** by clicking thumbnails, one result or many at once.
