@@ -79,11 +79,16 @@ const source = (id) => library?.sources.find((s) => s.id === id);
 const badges = (tags) => tags.map((t) => `<span class="badge">${esc(t)}</span>`).join("");
 const button = (action, label, cls = "", data = "") =>
   `<button type="button" data-action="${action}" class="${cls}" ${data}>${label}</button>`;
+const lineIcon = (path) => `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+const copyIcon = lineIcon('<rect x="5.5" y="5.5" width="8" height="9" rx="1.5"/><path d="M10.5 3V1.5h-8v9H4"/>');
+const checkIcon = lineIcon('<path d="m3 8 3 3 7-7"/>');
+const moreIcon = lineIcon('<path d="M3 8h.01M8 8h.01M13 8h.01"/>');
+let copyFeedbackTimer;
 const promptGrid = createPromptGrid({ main, asset, esc, badges, button, mediaBadge, audioPlaceholder });
 const date = (text) => new Date(text).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const resultSelection = createResultSelection({ asset, esc, button, date });
 const photoPicker = (p, chosen = []) =>
-  sourcePhotoPicker({ sources: library.sources, chosen, asset, esc });
+  sourcePhotoPicker({ sources: library.sources, folders: folders(), chosen, asset, esc });
 const resultMeta = (r, sourcePhotos) => ({
   sourcePhotos,
   name: r.name ?? null,
@@ -209,7 +214,7 @@ function renderSidebar() {
   $("#favorites").classList.toggle("active", view === "prompts" && favorites);
   $("#favorites").setAttribute("aria-pressed", String(favorites));
 
-  $("#library-path").textContent = library.root;
+  $("#library-path span").textContent = library.root.split("/").filter(Boolean).pop() || "/";
   $("#library-path").title = library.root;
   $("#favorite-count").textContent = library.prompts.filter(p => p.favorite).length;
   const isCategories = view === "prompts", label = isCategories ? "Categories" : "Tags";
@@ -333,7 +338,7 @@ function measurePromptText() {
 function renderPrompt() {
   const p = prompt();
   resultSelection.begin(p.id, p.results);
-  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.categories)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<div class="prompt-text-wrap ${promptTextExpanded === p.id ? "expanded" : ""}"><pre class="prompt-text">${promptMarkup(p.text)}</pre>${button("toggle-prompt-text", promptTextExpanded === p.id ? "Show less" : "Show more", "prompt-more", "hidden")}</div>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}${tryPanel()}<section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
+  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.categories)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("prompt-menu", moreIcon, "", 'aria-label="More" title="More" aria-haspopup="menu" aria-expanded="false" aria-controls="context-menu"')}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<div class="prompt-text-wrap ${promptTextExpanded === p.id ? "expanded" : ""}"><pre class="prompt-text">${promptMarkup(p.text)}</pre>${button("copy-prompt", copyIcon, "prompt-copy", 'aria-label="Copy prompt" title="Copy prompt"')}${button("toggle-prompt-text", promptTextExpanded === p.id ? "Show less" : "Show more", "prompt-more", "hidden")}</div>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${tryPanel()}<section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("add-result-menu", "+ Add result", "", 'aria-haspopup="menu" aria-expanded="false" aria-controls="context-menu"')}</div></div>${p.results.length ? `<div class="grid ${p.results.length <= 3 ? "results-grid-large" : ""}">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section>`;
   measurePromptText();
   requestAnimationFrame(measurePromptText);
 }
@@ -762,8 +767,16 @@ const actions = {
   reveal: (el) => invoke("reveal_in_finder", { path: source(el.dataset.id).path }),
   "copy-prompt": async () => {
     await navigator.clipboard.writeText(prompt().text);
+    const icon = $(".prompt-copy");
+    if (icon) {
+      clearTimeout(copyFeedbackTimer);
+      icon.innerHTML = checkIcon;
+      copyFeedbackTimer = setTimeout(() => { if (icon.isConnected) icon.innerHTML = copyIcon; }, 1500);
+    }
     toast("Copied");
   },
+  "add-result-menu": (el) => openMenu(button("pick-results", "Choose files…") + button("paste", "Paste image ⌘V"), el.getBoundingClientRect(), el),
+  "prompt-menu": (el) => openMenu((prompt().sourceUrl ? button("open-url", "Open original source ↗", "", `data-url="${esc(prompt().sourceUrl)}"`) : "") + button("delete-prompt", "Move prompt to Trash", "danger"), el.getBoundingClientRect(), el),
   "favorite-prompt": async () => {
     const p = prompt();
     await invoke("update_prompt", { id: p.id, meta: { ...p, favorite: !p.favorite }, text: p.text });
@@ -783,13 +796,13 @@ const actions = {
       promptId === el.dataset.pid &&
       resultSelection.choose(el.dataset.id, event)
     ) {
-      renderPrompt();
+      render();
       main.querySelector(`.result-card[data-id="${el.dataset.id}"]`)?.focus({ preventScroll: true });
     } else openResult(el.dataset.pid, el.dataset.id);
   },
   "select-results": () => {
     resultSelection.toggle();
-    renderPrompt();
+    render();
   },
   "set-result-sources": () => setResultSources(),
   "prev-result": () => {
@@ -821,7 +834,7 @@ const actions = {
 };
 document.addEventListener("click", async (e) => {
   const el = e.target.closest("[data-action]");
-  $("#context-menu").hidden = true;
+  closeMenu($("#context-menu").contains(e.target));
   if (!el || busy || el.disabled) return;
   try {
     await actions[el.dataset.action]?.(el, e);
@@ -997,7 +1010,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (e.key === "Escape") {
-    $("#context-menu").hidden = true;
+    if (!$("#context-menu").hidden) { e.preventDefault(); closeMenu(true); }
     return;
   }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
@@ -1031,16 +1044,12 @@ document.addEventListener("contextmenu", (e) => {
   if (!card) return;
   e.preventDefault();
   selectedSource = card.dataset.id;
-  const menu = $("#context-menu");
-  menu.innerHTML =
+  const contents =
     button("copy-image", source(selectedSource)?.kind === "audio" ? "Copy audio" : source(selectedSource)?.kind === "video" ? "Copy video" : "Copy image", "", `data-id="${selectedSource}"`) +
     button("reveal", "Reveal in Finder", "", `data-id="${selectedSource}"`) +
     button("source", "Edit tags", "", `data-id="${selectedSource}"`) +
     button("delete-source", "Move to Trash", "danger", `data-id="${selectedSource}"`);
-  menu.hidden = false;
-  menu.style.left = `${Math.min(e.clientX, innerWidth - 200)}px`;
-  menu.style.top = `${Math.min(e.clientY, innerHeight - 180)}px`;
-  $("button", menu).focus();
+  openMenu(contents, { left: e.clientX, bottom: e.clientY }, card);
 });
 // Native dragDropEnabled intercepts HTML dragstart; begin a native drag after a mouse threshold.
 document.addEventListener("mousedown", (e) => {
@@ -1136,8 +1145,36 @@ async function start() {
 }
 start().catch(report);
 
-function folderMenu(id, rect) {
+let menuTrigger = null;
+function closeMenu(restoreFocus = false) {
   const menu = $("#context-menu");
-  menu.innerHTML = button("rename-folder", "Rename", "", `data-id="${esc(id)}"`) + button("delete-folder", "Delete", "danger", `data-id="${esc(id)}"`);
-  menu.hidden = false; menu.style.left = `${Math.min(rect.left, innerWidth - 200)}px`; menu.style.top = `${Math.min(rect.bottom, innerHeight - 120)}px`;
+  if (menu.hidden) return;
+  menu.hidden = true;
+  menuTrigger?.setAttribute("aria-expanded", "false");
+  if (restoreFocus && menuTrigger?.isConnected) menuTrigger.focus();
+  menuTrigger = null;
+}
+function openMenu(contents, rect, trigger = document.activeElement) {
+  closeMenu();
+  const menu = $("#context-menu");
+  menuTrigger = trigger;
+  menu.innerHTML = contents;
+  for (const item of $$("button", menu)) item.setAttribute("role", "menuitem");
+  menu.hidden = false;
+  trigger?.setAttribute("aria-expanded", "true");
+  menu.style.left = `${Math.max(0, Math.min(rect.left, innerWidth - menu.offsetWidth))}px`;
+  menu.style.top = `${Math.max(0, Math.min(rect.bottom, innerHeight - menu.offsetHeight))}px`;
+  $("button", menu)?.focus();
+}
+$("#context-menu").addEventListener("keydown", (e) => {
+  const items = $$("button", e.currentTarget);
+  const index = items.indexOf(document.activeElement);
+  if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+    e.preventDefault();
+    const next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (index + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    items[next]?.focus();
+  } else if (e.key === "Tab") closeMenu(true);
+});
+function folderMenu(id, rect) {
+  openMenu(button("rename-folder", "Rename", "", `data-id="${esc(id)}"`) + button("delete-folder", "Delete", "danger", `data-id="${esc(id)}"`), rect);
 }

@@ -8,11 +8,14 @@ export function sourceName(s) { return stem(s.name?.trim() || s.originalName, s.
 export function resultName(r, date) { return stem(r.name, r.file || r.path) || date(r.createdAt); }
 
 // Shared source-photo controls and transient multi-selection in a prompt's result grid.
-export function sourcePhotoPicker({ sources, chosen = [], asset, esc }) {
+export function sourcePhotoPicker({ sources, folders = [], chosen = [], asset, esc }) {
   const options = sources
     .map(
-      (s) =>
-        `<label class="source-option" data-name="${esc([sourceName(s), s.note || "", ...(s.tags || [])].join(" ").toLowerCase())}" data-tags="${esc(JSON.stringify(s.tags || []))}"><input type="checkbox" name="sources" value="${s.id}" ${chosen.includes(s.id) ? "checked" : ""}><span class="source-option-photo">${s.thumbnail ? `<img src="${asset(s.thumbnail)}" alt="" loading="lazy" decoding="async">` : s.kind === "audio" ? audioPlaceholder(s, esc, sourceName(s)) : '<span class="muted">No preview</span>'}${mediaBadge(s)}</span><span class="source-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg></span><span class="source-option-name">${esc(sourceName(s))}</span></label>`,
+      (s) => {
+        const folder = folders.find((f) => f.id === s.folder);
+        const label = s.name?.trim() ? sourceName(s) : folder?.name;
+        return `<label class="source-option" title="${esc(sourceName(s))}" data-name="${esc([sourceName(s), s.note || "", ...(s.tags || [])].join(" ").toLowerCase())}" data-tags="${esc(JSON.stringify(s.tags || []))}"><input type="checkbox" name="sources" aria-label="${esc(sourceName(s))}" value="${s.id}" ${chosen.includes(s.id) ? "checked" : ""}><span class="source-option-photo">${s.thumbnail ? `<img src="${asset(s.thumbnail)}" alt="" loading="lazy" decoding="async">` : s.kind === "audio" ? audioPlaceholder(s, esc, sourceName(s)) : '<span class="muted">No preview</span>'}${mediaBadge(s)}</span><span class="source-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg></span>${label ? `<span class="source-option-name${s.name?.trim() ? "" : " muted"}">${esc(label)}</span>` : ""}</label>`;
+      },
     )
     .join("");
   const missing = chosen

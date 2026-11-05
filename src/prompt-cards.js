@@ -1,3 +1,16 @@
+// Calendar-day ages avoid daylight-saving changes shifting a result into yesterday.
+export function promptCardMeta(prompt, now = new Date()) {
+  const dates = prompt.results.map((r) => new Date(r.createdAt)).filter((d) => Number.isFinite(d.getTime()));
+  const newest = dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
+  const parts = [...(prompt.categories || [])];
+  if (newest) {
+    const day = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+    const days = Math.max(0, Math.round((day(now) - day(newest)) / 86400000));
+    parts.push(days === 0 ? "today" : days < 7 ? `${days}d ago` : days < 60 ? `${Math.floor(days / 7)}w ago` : newest.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(newest.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) }));
+  }
+  return parts.join(" · ") || "No results yet";
+}
+
 // Prompt-grid presentation and transient targeting state; no library data is changed here.
 export function createPromptGrid({ main, asset, esc, badges, button, mediaBadge, audioPlaceholder }) {
   let selected = null;
@@ -49,7 +62,7 @@ export function createPromptGrid({ main, asset, esc, badges, button, mediaBadge,
       results.length >= 2
         ? `<span class="result-count" aria-label="${results.length} results">${results.length}</span>`
         : "";
-    return `<article class="card prompt-card ${selected === prompt.id ? "is-selected" : ""}" data-prompt-id="${prompt.id}"><button type="button" class="prompt-card-open" data-action="prompt" data-id="${prompt.id}" aria-label="Open ${esc(prompt.title)}${results.length ? `, ${results.length} result${results.length === 1 ? "" : "s"}` : ""}">${preview}${results[0] ? mediaBadge(results[0]) : ""}${count}${prompt.favorite ? '<span class="star">★</span>' : ""}<div class="card-body"><h3>${esc(prompt.title)}</h3><div class="badges">${badges(prompt.categories || [])}</div></div></button>${button("card-pick-results", '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>', "card-add-result", `data-id="${prompt.id}" aria-label="Add result to ${esc(prompt.title)}" title="Add result"`)}</article>`;
+    return `<article class="card prompt-card ${selected === prompt.id ? "is-selected" : ""}" data-prompt-id="${prompt.id}"><button type="button" class="prompt-card-open" data-action="prompt" data-id="${prompt.id}" aria-label="Open ${esc(prompt.title)}${results.length ? `, ${results.length} result${results.length === 1 ? "" : "s"}` : ""}">${preview}${results[0] ? mediaBadge(results[0]) : ""}${count}${prompt.favorite ? '<span class="star">★</span>' : ""}<div class="card-body"><h3>${esc(prompt.title)}</h3><div class="prompt-card-meta">${esc(promptCardMeta(prompt))}</div></div></button>${button("card-pick-results", '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>', "card-add-result", `data-id="${prompt.id}" aria-label="Add result to ${esc(prompt.title)}" title="Add result"`)}</article>`;
   }
   function target() {
     // Only visible cards can receive paste, so filters/navigation cannot leave a stale target.
@@ -73,7 +86,7 @@ export function createPromptGrid({ main, asset, esc, badges, button, mediaBadge,
     const rows = Math.ceil((main.clientHeight || window.innerHeight) / (width / columns + 56));
     const fragment = document.createDocumentFragment();
     prompts.forEach((prompt, index) => {
-      const signature = JSON.stringify(prompt);
+      const signature = JSON.stringify(prompt) + promptCardMeta(prompt);
       let cached = cachedCards.get(prompt.id);
       if (!cached || cached.signature !== signature) {
         const template = document.createElement("template");

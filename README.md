@@ -49,7 +49,8 @@ Drag the thumbnail straight into the chat instead.
 - **Try with another photo**: on a prompt's page, open a panel with every photo you have, filter
   it by tags (they combine) or by name, then drag a photo into ChatGPT or click it and press ⌘C.
   The photo you picked is pre-linked when you add the result.
-- **Add results fast**: paste a copied image with ⌘V, drop files, or pick them. A ChatGPT link on
+- **Add results fast**: paste a copied image with ⌘V, drop files, or use
+  **+ Add result → Choose files… / Paste image**. A ChatGPT link on
   your clipboard is filled in automatically, so **Open chat** takes you back later. The
   **Photos used** picker has its own tag chips and search, so you can find the photo you used fast.
 
@@ -175,11 +176,12 @@ make clean                   # remove build output
    another photo**. Filter by tags or name and drag the photo into ChatGPT, or click it, press ⌘C
    and paste there.
 5. **Save the results.** Copy the generated image in ChatGPT and press ⌘V in the prompt, or drop
-   the files onto the prompt card. Click the photos you used and keep the chat link.
+   the files onto the prompt card. You can also use **+ Add result** to choose files or paste an image.
+   Click the photos you used and keep the chat link.
 6. **Organize.** Click **Edit** next to **Categories** (on Prompts) or **Tags** (on Photos) to
    rename, merge or remove them. Tags only affect photos; categories only affect prompts.
 7. **Come back later.** Filter, search, open a result full size, and use **Open chat** to jump
-   back into the conversation.
+   back into the conversation. The prompt’s **…** menu opens its original source or moves it to Trash.
 
 | Shortcut | Does |
 |---|---|

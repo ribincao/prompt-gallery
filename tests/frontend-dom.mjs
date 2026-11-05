@@ -71,6 +71,60 @@ try {
   assert.equal($("#sidebar #search"), null);
   assert.match($("#nav-sources").textContent, /Photos/);
   assert.equal($("#vocabulary-label").textContent, "Categories");
+  for (const id of ["nav-prompts", "nav-sources", "favorites"]) {
+    assert.ok($(`#${id} svg`), `${id} has a line icon`);
+    assert.equal($(`#${id} svg`).getAttribute("stroke"), "currentColor");
+  }
+  assert.ok($(".nav.active"));
+  assert.ok($(".tag-filter.active"));
+  assert.notEqual($(".nav.active").className, $(".tag-filter.active").className);
+  const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.tag-filter\.active \{ background: var\(--filter-active-bg\)/);
+  assert.match(css, /\.nav\.active \{ background: var\(--soft\)/);
+  assert.match(css, /#favorites\.active svg \{ fill: currentColor/);
+  assert.equal($("#library-path").textContent, "Prompt Library");
+  assert.equal($("#library-path").title, w.testState.lib.root);
+  assert.ok($("#library-path svg"));
+  assert.ok($("#library-menu #switch-library"));
+
+  const now = new Date(2026, 5, 10, 12);
+  const meta = (dates, categories = ["Design"]) => w.promptCardMeta({ categories, results: dates.map(createdAt => ({createdAt})) }, now);
+  assert.equal(meta([new Date(2026, 5, 10, 1)]), "Design · today");
+  assert.equal(meta([new Date(2026, 5, 7)]), "Design · 3d ago");
+  assert.equal(meta([new Date(2026, 4, 27)]), "Design · 2w ago");
+  assert.equal(meta([new Date(2026, 2, 4)]), "Design · Mar 4");
+  assert.equal(meta([new Date(2025, 2, 4)]), "Design · Mar 4, 2025");
+  assert.equal(meta([new Date(2026, 2, 4), new Date(2026, 5, 10)]), "Design · today", "uses newest even if unsorted");
+  assert.equal(meta([]), "Design");
+  assert.equal(meta([], []), "No results yet");
+  assert.equal(meta(["invalid"], []), "No results yet");
+  assert.equal(meta([new Date(2026, 5, 10)], []), "today");
+
+  const pickerHost = d.createElement("div");
+  const pickerSources = [
+    {id: "custom", name: "My <portrait>", originalName: "Auto.png", file: "1.png"},
+    {id: "folder", folder: "f", originalName: "ChatGPT Image Nov.png", file: "2.png"},
+    {id: "empty", originalName: "Other auto.png", file: "3.png"},
+    {id: "unknown", folder: "gone", originalName: "Unknown.png", file: "4.png"},
+  ];
+  pickerHost.innerHTML = w.sourcePhotoPicker({sources: pickerSources, folders: [{id: "f", name: "References"}], asset: x => x, esc: value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;")});
+  d.body.append(pickerHost);
+  const options = [...pickerHost.querySelectorAll(".source-option")];
+  assert.equal(options[0].querySelector(".source-option-name").textContent, "My <portrait>");
+  assert.equal(options[1].querySelector(".source-option-name.muted").textContent, "References");
+  assert.equal(options[2].querySelector(".source-option-name"), null);
+  assert.equal(options[3].querySelector(".source-option-name"), null);
+  assert.equal(options[1].title, "ChatGPT Image Nov");
+  assert.equal(options[1].querySelector("input").getAttribute("aria-label"), "ChatGPT Image Nov");
+  const pickerSearch = pickerHost.querySelector(".picker-search");
+  for (const [query, index] of [["chatgpt image", 1], ["my <portrait>", 0], ["other auto", 2]]) {
+    pickerSearch.value = query;
+    pickerSearch.dispatchEvent(new w.Event("input", {bubbles: true}));
+    assert.deepEqual(options.map(o => !o.hidden), options.map((_, i) => i === index));
+  }
+  pickerHost.remove();
+  console.log("PASS: SVG navigation, distinct filter styling, library footer, fixed-date card metadata, picker labels and hidden-name search");
+
   const originalTags = [...w.testState.lib.categories];
   w.testState.lib.categories.push(...Array.from({length: 8}, (_, i) => `extra-${i}`));
   await click("#reload");
@@ -136,7 +190,53 @@ try {
   assert.equal(d.querySelectorAll("test").length, 0);
   await act("copy-prompt");
   assert.equal(w.testState.copied, text);
-  await act("pick-results");
+  const copyButton = $(".prompt-text-wrap [data-action=copy-prompt]");
+  assert.equal(copyButton.title, "Copy prompt");
+  assert.ok($("#toolbar [data-action=copy-prompt].primary"));
+  w.testState.copied = null;
+  copyButton.click(); await tick();
+  assert.equal(w.testState.copied, text);
+  assert.equal(copyButton.querySelector("path").getAttribute("d"), "m3 8 3 3 7-7");
+  await new Promise(resolve => setTimeout(resolve, 1550));
+  assert.ok(copyButton.querySelector("rect"), "copy icon returns after feedback");
+  assert.equal($("#main [data-action=delete-prompt]"), null);
+  await act("prompt-menu");
+  assert.equal($("#context-menu [data-action=open-url]"), null, "no source item without a URL");
+  assert.equal(d.activeElement, $("#context-menu [data-action=delete-prompt]"));
+  assert.equal(d.activeElement.textContent, "Move prompt to Trash");
+  assert.ok(d.activeElement.classList.contains("danger"));
+  await click("#context-menu [data-action=delete-prompt]");
+  assert.ok($("#modal").open, "Trash still asks for confirmation");
+  await act("close-modal");
+  w.testState.lib.prompts[0].sourceUrl = "https://example.com/original";
+  await click("#reload");
+  assert.equal($("#main [data-action=open-url]"), null);
+  await act("prompt-menu");
+  assert.equal(d.activeElement.textContent, "Open original source ↗");
+  await click("#context-menu [data-action=open-url]");
+  assert.deepEqual(JSON.parse(JSON.stringify(w.testState.calls.at(-1))), {cmd: "open_chat", args: {url: "https://example.com/original"}});
+  assert.ok($("#context-menu").hidden);
+  await act("add-result-menu");
+  assert.equal(d.activeElement.textContent, "Choose files…");
+  assert.equal($("[data-action=add-result-menu]").getAttribute("aria-expanded"), "true");
+  d.activeElement.dispatchEvent(new w.KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+  assert.equal(d.activeElement.textContent, "Paste image ⌘V");
+  d.activeElement.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.ok($("#context-menu").hidden);
+  assert.equal(d.activeElement, $("[data-action=add-result-menu]"));
+  assert.equal(d.activeElement.getAttribute("aria-expanded"), "false");
+  let clipboardReads = 0;
+  const previousRead = w.navigator.clipboard.read;
+  w.navigator.clipboard.read = async () => { clipboardReads++; return []; };
+  await act("add-result-menu");
+  await click("#context-menu [data-action=paste]");
+  assert.equal(clipboardReads, 1, "menu invokes paste handler");
+  assert.ok($("#context-menu").hidden);
+  w.navigator.clipboard.read = previousRead;
+  console.log("PASS: exact text copy and timed icon feedback, Add result and More menus, focus/Escape, original source and Trash confirmation");
+
+  await act("add-result-menu");
+  await click("#context-menu [data-action=pick-results]");
   assert.equal($("[name=chatUrl]").value, "https://chatgpt.com/c/test");
   assert.equal($("[name=sources]").checked, false, "nothing preselected without an opened photo");
   $("[name=sources]").click();
@@ -144,6 +244,7 @@ try {
   assert.equal($(".source-option-name").textContent, "Kujira <bucket>");
   await save();
   assert.equal(w.testState.lib.prompts[0].results[0].sourcePhotos.length, 1);
+  assert.ok($(".results-grid-large .result-card"));
   await act("result");
   assert.match($(".linked-source").textContent, /Kujira <bucket>/);
   await act("edit-result");
@@ -277,6 +378,7 @@ try {
   w.testState.assetPaths.length = 0;
   await click("#reload");
   const gridCard = (id) => $(`.prompt-card[data-prompt-id="${id}"]`);
+  assert.equal(gridCard(first.id).querySelector(".prompt-card-meta").textContent, w.promptCardMeta(first));
   assert.equal(gridCard(first.id).querySelectorAll(".stack-photo").length, 3);
   assert.equal(gridCard(first.id).querySelector(".result-count").textContent, "5");
   assert.equal(gridCard(second.id).querySelectorAll(".placeholder").length, 1);
@@ -414,7 +516,8 @@ try {
   await act("edit-prompt");
   assert.doesNotMatch($("#dialog-form").textContent, /needs/i);
   await act("close-modal");
-  await act("pick-results");
+  await act("add-result-menu");
+  await click("#context-menu [data-action=pick-results]");
   assert.deepEqual(
     [...d.querySelectorAll(".source-option input")].map((el) => el.value),
     [matchingGroup.id, matchingSingle.id, otherPhoto.id],
@@ -468,6 +571,8 @@ try {
   const before = first.results.map((r) => ({ ...r, sourcePhotos: [...r.sourcePhotos] }));
   await click("#reload");
   await act("select-results");
+  assert.ok($("#toolbar [data-action=prompt-menu]"));
+  assert.equal($("#main .page-header"), null);
   const resultButtons = [...d.querySelectorAll(".result-card")];
   resultButtons[0].click();
   await tick();

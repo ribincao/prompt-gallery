@@ -7,6 +7,7 @@
   --muted: #6e6e73;
   --line: #d2d2d7;
   --accent: #007aff;
+  --filter-active-bg: color-mix(in srgb, var(--accent) 7%, var(--sidebar));
   --soft: color-mix(in srgb, var(--accent) 15%, var(--surface));
   --danger: #d70015;
   --shadow: 0 18px 70px var(--shadow-color);
@@ -79,6 +80,7 @@
     --line: #3a3a3c;
     --accent: #0a84ff;
     --soft: #1d3350;
+    --filter-active-bg: color-mix(in srgb, var(--accent) 7%, var(--sidebar));
     --danger: #ff453a;
     --shadow: 0 18px 70px var(--shadow-color);
     --on-accent: #fff;
@@ -182,6 +184,8 @@ nav { display: flex; flex-direction: column; gap: var(--space-1); }
   font-size: var(--text-md);
   padding: var(--space-2);
 }
+.nav svg { flex: none; }
+#favorites.active svg { fill: currentColor; }
 .nav.active { background: var(--soft); color: var(--accent-label); font-weight: var(--weight-bold); }
 .count {
   margin-left: auto;
@@ -211,6 +215,9 @@ summary {
 }
 details button { display: block; width: 100%; text-align: left; margin-bottom: var(--space-2); }
 #library-path {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   font-size: var(--text-xs);
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -219,6 +226,8 @@ details button { display: block; width: 100%; text-align: left; margin-bottom: v
   text-overflow: ellipsis;
   margin: var(--space-2) 0 0;
 }
+#library-path svg { flex: none; }
+#library-path span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #main { flex: 1; overflow-y: auto; min-width: 0; overflow-x: hidden; min-height: 0; padding: var(--space-4); }
 .welcome {
   height: 100%;
@@ -294,7 +303,7 @@ details button { display: block; width: 100%; text-align: left; margin-bottom: v
   min-height: 28px;
   padding: var(--space-2);
 }
-.tag-filter.active { background: var(--soft); color: var(--accent-label); }
+.tag-filter.active { background: var(--filter-active-bg); color: var(--accent-label); }
 .tag-label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tag-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--tag-color); }
 .tone-0 { --tag-color: var(--tone-0); }
@@ -560,7 +569,15 @@ textarea:focus-visible {
   border-radius: var(--radius-md);
   padding: var(--space-4);
 }
-.prompt-card { --preview-height: 180px; }
+.prompt-card {
+  --preview-height: 180px;
+  transition: box-shadow var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+}
+.prompt-card:hover,
+.prompt-card:focus-within { box-shadow: var(--shadow-small); }
+.prompt-card-meta { font-size: var(--text-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid.results-grid-large { grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--space-6) * 10)), 1fr)); }
+.results-grid-large .result-card { width: 100%; max-width: calc(var(--space-6) * 15); }
 .prompt-card.is-selected { outline: 2px solid var(--accent); outline-offset: 2px; }
 .prompt-card.is-drop-target { outline: 3px dashed var(--accent); outline-offset: 3px; background: var(--soft); }
 .prompt-card-open {
@@ -572,12 +589,12 @@ textarea:focus-visible {
   padding: 0;
 }
 .prompt-card-open:hover { background: var(--clear); }
-/* Stack offsets are illustration geometry, independent of the spacing scale. */
+/* Straight resting layers; hover offsets are enabled only with motion allowed. */
 .result-stack {
-  --back-left: -6px;
-  --back-right: 6px;
-  --left-angle: -4deg;
-  --right-angle: 3deg;
+  --back-left: 0px;
+  --back-right: 0px;
+  --left-angle: 0deg;
+  --right-angle: 0deg;
   position: relative;
   height: auto;
   isolation: isolate;
@@ -586,10 +603,10 @@ textarea:focus-visible {
 }
 .result-stack .stack-photo {
   position: absolute;
-  top: 8px;
+  top: 0;
   left: 0;
   width: 100%;
-  height: calc(100% - 8px);
+  height: 100%;
   object-fit: cover;
   border: 0;
   border-radius: var(--radius-md);
@@ -729,7 +746,6 @@ textarea:focus-visible {
   object-fit: cover;
   border-radius: var(--radius-md);
 }
-.card:hover .card-body { color: var(--accent); }
 .card-body > small {
   display: block;
   font-size: var(--text-sm);
@@ -755,14 +771,16 @@ textarea:focus-visible {
 .result-stack .stack-layer-0 { z-index: 3; height: 100%; top: 0; }
 .result-stack .stack-layer-1 {
   z-index: 2;
-  transform: translateY(-3px) rotate(-2deg);
-  width: 92%;
-  left: 4%;
+  transform: translate(var(--back-left), calc(-1 * var(--space-1))) rotate(var(--left-angle));
+  filter: brightness(0.94);
+  width: 94%;
+  left: 3%;
   top: 0;
 }
 .result-stack .stack-layer-2 {
   z-index: 1;
-  transform: translateY(-5px) rotate(2deg);
+  transform: translate(var(--back-right), calc(-1 * var(--space-2))) rotate(var(--right-angle));
+  filter: brightness(0.88);
   width: 88%;
   left: 6%;
   top: 0;
@@ -815,6 +833,8 @@ textarea:focus-visible {
 .warning ul { padding-left: var(--space-5); max-height: none; overflow: visible; }
 .prompt-text strong { font-weight: var(--weight-bold); }
 .prompt-text-wrap { position: relative; margin-bottom: var(--space-3); }
+.prompt-copy { position: absolute; top: var(--space-2); right: var(--space-2); display: grid; place-items: center; padding: var(--space-2); }
+.prompt-text-wrap .prompt-text { padding-right: calc(var(--space-8) + var(--space-4)); }
 .prompt-text-wrap.expanded .prompt-text { max-height: none; }
 /* The fade signals hidden text while Show more remains outside the masked content. */
 .prompt-text-wrap.clamped .prompt-text {
@@ -874,7 +894,8 @@ textarea:focus-visible {
   gap: var(--space-3);
   max-height: 310px;
   overflow-y: auto;
-  padding: var(--space-1);
+  border-block: 1px solid var(--line);
+  padding: var(--space-2);
 }
 .source-option {
   display: flex;
@@ -1250,12 +1271,14 @@ video.lightbox-image { width: 100%; object-fit: contain; }
 /* Media queries: retain responsive geometry and input/motion preferences. */
 
 @media (prefers-reduced-motion: no-preference) {
+  .prompt-card:hover,
+  .prompt-card:focus-within { transform: translateY(calc(var(--space-1) / -2)); }
   .prompt-card:hover .result-stack,
   .prompt-card:focus-within .result-stack {
-    --back-left: -10px;
-    --back-right: 10px;
-    --left-angle: -7deg;
-    --right-angle: 6deg;
+    --back-left: calc(-1 * var(--space-1));
+    --back-right: var(--space-1);
+    --left-angle: -2deg;
+    --right-angle: 2deg;
   }
 }
 
