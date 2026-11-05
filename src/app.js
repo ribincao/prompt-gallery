@@ -19,7 +19,7 @@ let library = null,
   view = "prompts",
   promptId = null,
   selectedSource = null;
-let filter = "",
+let filter = [],
   favorites = false,
   query = "",
   busy = false,
@@ -63,7 +63,7 @@ function moveDialog() {
 }
 function renderSources(items) {
   if (sourceFolder && !folders().some((f) => f.id === sourceFolder)) sourceFolder = null;
-  const flat = !!(filter || query.trim());
+  const flat = !!(filter.length || query.trim());
   visibleSources = flat ? items : items.filter((s) => folderOf(s) === sourceFolder);
   selectedSources = new Set([...selectedSources].filter((id) => visibleSources.some((s) => s.id === id)));
   const grid = !flat && sourceFolder === null;
@@ -191,7 +191,7 @@ function warnings() {
     : "";
 }
 function sourceCard(s) {
-  return `<button class="card source-card ${s.id === selectedSource || selectedSources.has(s.id) ? "selected" : ""}" data-action="source" data-id="${s.id}" aria-label="Preview ${esc(sourceName(s))}">${mediaPoster(s, asset, esc, sourceName(s))}<div class="card-body"><h3>${esc(sourceName(s))}</h3>${filter || query.trim() ? `<small class="folder-label">${esc(folderLabel(folderOf(s)))}</small>` : ""}<div class="badges">${badges(s.tags)}</div></div></button>`;
+  return `<button class="card source-card ${s.id === selectedSource || selectedSources.has(s.id) ? "selected" : ""}" data-action="source" data-id="${s.id}" aria-label="Preview ${esc(sourceName(s))}">${mediaPoster(s, asset, esc, sourceName(s))}<div class="card-body"><h3>${esc(sourceName(s))}</h3>${filter.length || query.trim() ? `<small class="folder-label">${esc(folderLabel(folderOf(s)))}</small>` : ""}<div class="badges">${badges(s.tags)}</div></div></button>`;
 }
 function renderSidebar() {
   $("#prompt-count").textContent = library.prompts.length;
@@ -214,9 +214,9 @@ function renderSidebar() {
   }
   const tags = [...usage.keys()].sort((a, b) => usage.get(b) - usage.get(a) || a.localeCompare(b));
   const shown = tagsExpanded ? tags : tags.slice(0, 6);
-  if (filter && !shown.includes(filter)) shown.push(filter);
-  $("#tags").innerHTML = `<button class="tag-filter ${!filter ? "active" : ""}" data-action="filter" data-tag="" aria-pressed="${!filter}">All ${label.toLowerCase()}</button>` + shown.map(t =>
-    `<button class="tag-filter ${filter === t ? "active" : ""}" data-action="filter" data-tag="${esc(t)}" aria-pressed="${filter === t}"><span class="tag-dot tone-${tagColor(t)}" aria-hidden="true"></span><span class="tag-label">${esc(t)}</span><span class="count">${usage.get(t)}</span></button>`).join("") +
+  for (const t of filter) if (!shown.includes(t)) shown.push(t);
+  $("#tags").innerHTML = `<button class="tag-filter ${!filter.length ? "active" : ""}" data-action="filter" data-tag="" aria-pressed="${!filter.length}">All ${label.toLowerCase()}</button>` + shown.map(t =>
+    `<button class="tag-filter ${filter.includes(t) ? "active" : ""}" data-action="filter" data-tag="${esc(t)}" aria-pressed="${filter.includes(t)}"><span class="tag-dot tone-${tagColor(t)}" aria-hidden="true"></span><span class="tag-label">${esc(t)}</span><span class="count">${usage.get(t)}</span></button>`).join("") +
     (tags.length > 6 ? `<button id="more-tags" aria-expanded="${tagsExpanded}">${tagsExpanded ? "Show less" : `${tags.length - shown.length} more`}</button>` : "");
   $("#more-tags")?.addEventListener("click", () => {
     expanded[view] = !tagsExpanded;
@@ -242,7 +242,7 @@ function render() {
   header.remove();
 }
 const expanded = {prompts: true, sources: true};
-const filters = {prompts: "", sources: ""};
+const filters = {prompts: [], sources: []};
 try { expanded.sources = localStorage.getItem("gallery-tags-collapsed") !== "true"; expanded.prompts = localStorage.getItem("gallery-categories-collapsed") !== "true"; } catch {}
 function tagColor(name) {
   let hash = 0;
@@ -264,13 +264,13 @@ function renderView() {
     const tags = isPrompts ? item.categories : item.tags;
     const text = isPrompts ? [item.title, item.text, item.notes, ...item.results.map((r) => resultName(r, date)), ...tags] : [sourceName(item), item.originalName, item.note, ...tags];
     return (
-      (!filter || tags.includes(filter)) &&
+      filter.every((t) => tags.includes(t)) &&
       (!isPrompts || !favorites || item.favorite) &&
       text.join(" ").toLowerCase().includes(query.toLowerCase())
     );
   });
   if (!isPrompts) { renderSources(items); return; }
-  main.innerHTML = `<header class="page-header"><div><h1>${favorites ? "Favorites" : filter ? esc(filter) : "Prompts"}</h1><span class="toolbar-count">${items.length}</span></div><div class="actions">${!isPrompts ? button("paste", "Paste image") : ""}${button(isPrompts ? "new-prompt" : "pick-sources", isPrompts ? "+ New" : "+ Add photos", "primary")}</div></header>${warnings()}${items.length ? `<div class="grid"></div>` : `<section class="empty"><div class="hero-mark">${isPrompts ? "▤" : "▧"}</div><h2>${query || filter || favorites ? "Nothing matches yet" : isPrompts ? "Your next idea starts here" : "Bring your own inspiration"}</h2><p>${query || filter || favorites ? "Try a different search or clear your filters." : isPrompts ? "Save a prompt, then collect what it creates. You can also paste a block of prompt text here." : "Drop photos here, paste an image, or choose files. Originals are always copied and left untouched."}</p>${button(isPrompts ? "new-prompt" : "pick-sources", isPrompts ? "Create a prompt" : "Choose photos", "primary")}</section>`}`;
+  main.innerHTML = `<header class="page-header"><div><h1>${favorites ? "Favorites" : filter.length ? esc(filter.join(" + ")) : "Prompts"}</h1><span class="toolbar-count">${items.length}</span></div><div class="actions">${!isPrompts ? button("paste", "Paste image") : ""}${button(isPrompts ? "new-prompt" : "pick-sources", isPrompts ? "+ New" : "+ Add photos", "primary")}</div></header>${warnings()}${items.length ? `<div class="grid"></div>` : `<section class="empty"><div class="hero-mark">${isPrompts ? "▤" : "▧"}</div><h2>${query || filter.length || favorites ? "Nothing matches yet" : isPrompts ? "Your next idea starts here" : "Bring your own inspiration"}</h2><p>${query || filter.length || favorites ? "Try a different search or clear your filters." : isPrompts ? "Save a prompt, then collect what it creates. You can also paste a block of prompt text here." : "Drop photos here, paste an image, or choose files. Originals are always copied and left untouched."}</p>${button(isPrompts ? "new-prompt" : "pick-sources", isPrompts ? "Create a prompt" : "Choose photos", "primary")}</section>`}`;
   if (items.length) promptGrid.mount($(".grid", main), items, library.root, library.prompts.map(p => p.id));
   promptGrid.afterRender();
 }
@@ -416,7 +416,7 @@ async function importSources(data) {
       await refresh();
       throw e;
     }
-    if (sourceFolder && !filter && !query.trim()) await invoke("move_sources", { ids, folder: sourceFolder });
+    if (sourceFolder && !filter.length && !query.trim()) await invoke("move_sources", { ids, folder: sourceFolder });
     await refresh();
     importedTags(ids);
   });
@@ -651,7 +651,9 @@ const actions = {
   },
   filter: (el) => {
     sourceFolder = null;
-    filter = el.dataset.tag;
+    const tag = el.dataset.tag;
+    // Click adds a tag to the filter, click again removes it; "All" clears. Items must match every tag.
+    filter = !tag ? [] : filter.includes(tag) ? filter.filter((t) => t !== tag) : [...filter, tag];
     promptId = null;
     render();
   },
@@ -826,9 +828,11 @@ async function changeTag(command, args) {
       if (command === "set_categories") args = {categories: args.tags};
     }
     const result = await invoke(command, args);
-    if (filter.toLowerCase() === (args.tag ?? args.from ?? "").toLowerCase()) {
+    const from = (args.tag ?? args.from ?? "").toLowerCase();
+    if (filter.some((t) => t.toLowerCase() === from)) {
       const names = managerCategories ? library.categories : library.tags;
-      filter = names.find(t => t.toLowerCase() === args.to?.toLowerCase()) || args.to || "";
+      const to = args.to ? names.find(t => t.toLowerCase() === args.to.toLowerCase()) || args.to : null;
+      filter = [...new Set(filter.flatMap((t) => t.toLowerCase() !== from ? [t] : to ? [to] : []))];
     }
     await refresh();
     await manageTags();

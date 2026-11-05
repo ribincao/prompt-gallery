@@ -67,6 +67,9 @@ Drag the thumbnail straight into the chat instead.
 - **Link results to photos** by clicking thumbnails, one result or many at once.
 - **Independent categories and tags.** Categories organize prompts; tags organize photos.
   Search prompts by category and photos by tag, alongside title, text and notes; mark favorites.
+- **Combine filters.** Click tags in the sidebar to stack them (for example **Libin** +
+  **Family** shows only photos with both); click a tag again to drop it, or **All tags** to clear.
+  Categories on the Prompts side work the same way.
 - **Light and dark mode**, following the system.
 
 ## Your data stays yours
@@ -183,7 +186,8 @@ make clean                   # remove build output
    needs. Neither operation deletes photos, prompts or results. Each view remembers its own
    filter and expanded list. Category counts show prompts; tag counts show photos, with prompt
    needs counts also available in Manage tags.
-7. **Come back later.** Search, filter by category or photo tag, open a result full size, and use **Open chat** to
+7. **Come back later.** Search, filter by one or more categories or photo tags (click to add,
+   click again to remove; items must match all of them), open a result full size, and use **Open chat** to
    jump back into the conversation.
 
 | Shortcut | Does |

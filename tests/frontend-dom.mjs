@@ -695,6 +695,27 @@ try {
   assert.ok(w.testState.lib.folders.some(f=>f.id===createdFolder && f.name==='Inspector folder'));
   assert.equal($('.control-popover'),null);
   console.log('PASS: inspector media metadata, inline name key isolation, inline folder creation and persisted selection');
+  // Multi-tag filter: click adds a tag, click again removes it, items must match every tag.
+  await act("close-modal").catch(() => {});
+  const mk = (n, tags) => ({...w.testState.lib.sources[0], id: `multi-${n}`, name: `Multi ${n}`, tags, folder: undefined});
+  w.testState.lib.tags = [...new Set([...w.testState.lib.tags, "Libin", "Family"])];
+  w.testState.lib.sources = [mk(1, ["Libin", "Family"]), mk(2, ["Libin"]), mk(3, ["Family"])];
+  await click("#reload"); await click("#nav-sources");
+  const shownIds = () => [...d.querySelectorAll(".source-card")].map(c => c.dataset.id).sort();
+  await click('#tags [data-tag="Libin"]');
+  assert.deepEqual(shownIds(), ["multi-1", "multi-2"]);
+  await click('#tags [data-tag="Family"]');
+  assert.deepEqual(shownIds(), ["multi-1"], "both tags must match");
+  assert.equal(d.querySelectorAll("#tags .tag-filter.active").length, 2);
+  await click('#tags [data-tag="Libin"]');
+  assert.deepEqual(shownIds(), ["multi-1", "multi-3"], "second click removes only that tag");
+  await click('#tags [data-tag="Family"]');
+  assert.ok($(".folder-card"), "no tags selected returns to the folder grid");
+  assert.equal($('#tags .active').dataset.tag, "");
+  await click('#tags [data-tag="Libin"]'); await click('#tags [data-tag="Family"]');
+  await click('#tags [data-tag=""]');
+  assert.equal(d.querySelectorAll("#tags .tag-filter.active").length, 1, "All clears every tag");
+  console.log("PASS: multi-tag filter toggles, AND matching and All clears");
   // JSDOM cannot emulate native WebKit control painting; verify that controls
   // explicitly opt out of it and that the document declares a light base scheme.
   const style = d.createElement("style");

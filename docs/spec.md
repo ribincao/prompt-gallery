@@ -125,7 +125,9 @@ and "Optimize Mac Storage" evicts originals).
 One window, native macOS title bar, follows system light/dark mode.
 
 **Sidebar**: two sections, **Prompts** and **Photos**; a search box; tag filter
-chips; a "Favorites" filter.
+chips; a "Favorites" filter. Filter chips toggle: clicking a tag adds it, clicking it again
+removes it, and "All" clears them. Several selected tags combine with AND (an item must have
+every selected tag).
 
 **Prompts view**: a grid of prompt cards showing the title and categories. A card with
 no results keeps a text placeholder; one result shows a single flat thumbnail. With two
