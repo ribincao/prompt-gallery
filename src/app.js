@@ -88,7 +88,8 @@ const promptGrid = createPromptGrid({ main, asset, esc, badges, button, mediaBad
 const date = (text) => new Date(text).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const resultSelection = createResultSelection({ asset, esc, button, date });
 const photoPicker = (p, chosen = []) =>
-  sourcePhotoPicker({ sources: library.sources, folders: folders(), chosen, asset, esc });
+  sourcePhotoPicker({ sources: library.sources, folders: folders(), chosen: chosen.filter(id => !(pendingTrash?.kind === "source" && pendingTrash.id === id)), asset, esc }) +
+  (pendingTrash?.kind === "source" && chosen.includes(pendingTrash.id) ? `<input type="hidden" name="sources" value="${esc(pendingTrash.id)}">` : "");
 const resultMeta = (r, sourcePhotos) => ({
   sourcePhotos,
   name: r.name ?? null,
@@ -109,14 +110,26 @@ function editedName(value, displayed, stored, file) {
 function toast(message) {
   const el = $("#toast");
   clearTimeout(toastTimer);
-  el.textContent = message;
+  el.innerHTML = `<span>${esc(message)}</span>${pendingTrash && !trashCommit ? button("undo-trash", "Undo", "", 'aria-label="Undo Move to Trash"') : ""}`;
   el.hidden = false;
-  try { if (el.matches(":popover-open")) el.hidePopover(); el.showPopover(); } catch {}
+  raiseToast();
+  if (pendingTrash) return;
   toastTimer = setTimeout(() => {
     el.hidden = true;
     try { el.hidePopover(); } catch {}
   }, 5000);
 }
+// A modal makes outside controls inert. Keep Undo inside the active dialog's
+// focus scope, while its manual popover still renders above that dialog.
+function raiseToast() {
+  const el = $("#toast");
+  if (!el || el.hidden) return;
+  const host = $$('dialog[open]').at(-1) || document.body;
+  try { el.hidePopover(); } catch {}
+  if (el.parentElement !== host) host.append(el);
+  try { el.showPopover(); } catch {}
+}
+document.addEventListener('close', raiseToast, true);
 function report(error) {
   const text = String(error);
   toast(text);
@@ -178,6 +191,7 @@ function showModal(title, body, submit) {
     update();
   }
   if (!modal.open) modal.showModal();
+  raiseToast();
   // Inspectors open without focusing the name, so it isn't shown selected and a stray key can't replace it.
   requestAnimationFrame(() => modal.classList.contains("inspector-dialog") ? modal.focus() : $("input:not([type=checkbox]):not([type=hidden]),textarea,button", $("#dialog-form"))?.focus());
 }
@@ -238,7 +252,14 @@ function renderSidebar() {
   });
 }
 function render() {
+  const focused = document.activeElement;
+  const focusKey = focused?.dataset.gridCard ? { action: focused.dataset.action, id: focused.dataset.id } : null;
   renderView();
+  prepareImages(); prepareGrids();
+  if (focusKey) {
+    const target = $$('[data-grid-card]', main).find(el => el.dataset.action === focusKey.action && el.dataset.id === focusKey.id);
+    target?.focus({ preventScroll: true });
+  }
   const header = $(".page-header", main);
   if (!header) return;
   const heading = $("#toolbar-heading"), actions = $("#toolbar-actions");
@@ -351,7 +372,7 @@ async function refresh(external = false) {
     return refresh(external);
   }
   refreshInFlight = (async () => {
-    const next = await invoke("load_library");
+    const next = hidePendingTrash(await invoke("load_library"));
     if (external && (busy || modal.open || lightbox.open)) {
       pendingLibraryRefresh = true;
       return;
@@ -360,6 +381,14 @@ async function refresh(external = false) {
     if (external && JSON.stringify(next) === JSON.stringify(library)) return;
     const top = main.scrollTop, left = main.scrollLeft;
     library = next;
+    if (lightbox.open && !photoPreview) {
+      const currentId = lightItems[lightIndex]?.id;
+      lightItems = library.prompts.find(p => p.id === lightPrompt)?.results || [];
+      const currentIndex = lightItems.findIndex(r => r.id === currentId);
+      lightIndex = currentIndex >= 0 ? currentIndex : Math.min(lightIndex, lightItems.length - 1);
+      renderLightbox();
+    }
+    if (palette.open) renderPalette();
     render();
     main.scrollTop = top;
     main.scrollLeft = left;
@@ -378,6 +407,8 @@ async function chooseLibrary() {
   const path = await invoke("pick_library_folder");
   if (!path) return;
   await task(async () => {
+    await commitTrash();
+    if (refreshInFlight) await refreshInFlight;
     try {
       await invoke("set_library", { path });
     } catch (e) {
@@ -520,7 +551,9 @@ async function addResults(data, pid = promptId) {
     },
   );
 }
-function openResult(pid, id) {
+function openResult(pid, id, card = null) {
+  previewReturn = card || document.activeElement;
+  photoPreview = false;
   const p = library.prompts.find((p) => p.id === pid);
   if (!p) return;
   closeModal();
@@ -532,8 +565,11 @@ function openResult(pid, id) {
   );
   renderLightbox();
   if (!lightbox.open) lightbox.showModal();
+  raiseToast();
+  animateResult(card);
 }
 function renderLightbox() {
+  const focusedAction = $('#lightbox-content').contains(document.activeElement) ? document.activeElement.dataset.action : null;
   const r = lightItems[lightIndex];
   if (!r) {
     lightbox.close();
@@ -550,9 +586,13 @@ function renderLightbox() {
               "linked-source",
               `data-id="${esc(id)}" aria-label="Open source photo ${esc(sourceName(s))}"`,
             )
-          : '<span class="missing">Source photo missing</span>';
+          : pendingTrash?.kind === "source" && pendingTrash.id === id ? "" : '<span class="missing">Source photo missing</span>';
       })
       .join("")}</div></div>`;
+  if (lightbox.open && focusedAction) {
+    const target = $$('button:not(:disabled)', lightbox).find(b => b.dataset.action === focusedAction);
+    (target || $('[data-action="close-lightbox"]', lightbox))?.focus();
+  }
 }
 function editResult() {
   const r = lightItems[lightIndex],
@@ -610,20 +650,70 @@ function setResultSources() {
     },
   );
 }
-function confirmTrash(kind, id, pid = null) {
-  lightbox.close();
-  showModal(
-    `Move ${kind} to Trash?`,
-    `<p>${kind === "prompt" ? "This prompt and all its results will be moved to the macOS Trash." : "This item and its metadata will be moved to the macOS Trash."} You can restore them in Finder.</p>${kind === "source" ? '<p class="muted">Linked results stay in the library and will show “Source photo missing”.</p>' : ""}${footer("Move to Trash")}`,
-    async () => {
-      await invoke("trash_item", { kind, id, promptId: pid });
-      closeModal();
-      if (kind === "prompt") promptId = null;
-      if (kind === "source") selectedSource = null;
+// Keep the record hidden until IPC settles, including concurrent watcher loads.
+let pendingTrash = null, trashTimer = null, trashCommit = null;
+function hidePendingTrash(data) {
+  const item = pendingTrash;
+  if (!item) return data;
+  if (item.kind === "source") data.sources = data.sources.filter(s => s.id !== item.id);
+  if (item.kind === "prompt") data.prompts = data.prompts.filter(p => p.id !== item.id);
+  if (item.kind === "result") {
+    const p = data.prompts.find(p => p.id === item.promptId);
+    if (p) p.results = p.results.filter(r => r.id !== item.id);
+  }
+  return data;
+}
+async function commitTrash() {
+  if (trashCommit) return trashCommit;
+  if (!pendingTrash) return;
+  clearTimeout(trashTimer);
+  const item = pendingTrash;
+  trashCommit = (async () => {
+    try { await invoke("trash_item", item); }
+    catch (error) {
+      pendingTrash = null;
       await refresh();
-      toast("Moved to Trash");
-    },
-  );
+      throw error;
+    } finally { pendingTrash = null; }
+  })();
+  try { await trashCommit; }
+  finally { trashCommit = null; hideToast(); }
+}
+function hideToast() {
+  clearTimeout(toastTimer);
+  if ($("#toast").contains(document.activeElement)) {
+    ($('dialog[open] button:not(:disabled)') || main).focus();
+  }
+  $("#toast").hidden = true;
+  try { $("#toast").hidePopover(); } catch {}
+}
+async function undoTrash() {
+  if (!pendingTrash || trashCommit) return;
+  clearTimeout(trashTimer);
+  pendingTrash = null;
+  const restore = document.activeElement?.closest('#toast');
+  hideToast();
+  await refresh();
+  if (restore) ($('dialog[open] button:not(:disabled)') || main).focus();
+}
+function deferTrash(kind, id, pid = null) {
+  return task(async () => {
+    await commitTrash();
+    pendingTrash = { kind, id, promptId: pid };
+    closeModal();
+    library = hidePendingTrash(library);
+    if (kind === "prompt" && promptId === id) promptId = null;
+    if (kind === "source" && selectedSource === id) selectedSource = null;
+    if (lightbox.open) {
+      lightItems = library.prompts.find(p => p.id === lightPrompt)?.results || [];
+      lightIndex = Math.min(lightIndex, lightItems.length - 1);
+      renderLightbox();
+    }
+    render();
+    if (!lightbox.open) main.focus();
+    toast("Moved to Trash");
+    trashTimer = setTimeout(() => commitTrash().catch(report), 6000);
+  });
 }
 async function copyImage(id) {
   const s = source(id);
@@ -698,6 +788,7 @@ function navigate(next) {
   render();
 }
 const actions = {
+  "undo-trash": () => undoTrash(),
   "close-modal": () => closeModal(),
   "close-lightbox": () => lightbox.close(),
   "new-prompt": () => editPrompt(),
@@ -798,7 +889,7 @@ const actions = {
     ) {
       render();
       main.querySelector(`.result-card[data-id="${el.dataset.id}"]`)?.focus({ preventScroll: true });
-    } else openResult(el.dataset.pid, el.dataset.id);
+    } else openResult(el.dataset.pid, el.dataset.id, event.detail ? el : null);
   },
   "select-results": () => {
     resultSelection.toggle();
@@ -828,9 +919,9 @@ const actions = {
     lightItems = library.prompts.find((p) => p.id === lightPrompt).results;
     renderLightbox();
   },
-  "delete-source": (el) => confirmTrash("source", el.dataset.id),
-  "delete-prompt": () => confirmTrash("prompt", promptId),
-  "delete-result": () => confirmTrash("result", lightItems[lightIndex].id, lightPrompt),
+  "delete-source": (el) => deferTrash("source", el.dataset.id),
+  "delete-prompt": () => deferTrash("prompt", promptId),
+  "delete-result": () => deferTrash("result", lightItems[lightIndex].id, lightPrompt),
 };
 document.addEventListener("click", async (e) => {
   const el = e.target.closest("[data-action]");
@@ -999,6 +1090,7 @@ document.addEventListener("copy", (e) => {
   }
 });
 document.addEventListener("keydown", (e) => {
+  if (e.defaultPrevented || palette.open) return;
   const editing = !!e.target.closest("input,textarea,[contenteditable]");
   if (modal.open && e.key === "Enter" && !e.isComposing &&
       ((e.metaKey || e.ctrlKey) || e.target.matches("input:not([type=checkbox])"))) {
@@ -1013,7 +1105,7 @@ document.addEventListener("keydown", (e) => {
     if (!$("#context-menu").hidden) { e.preventDefault(); closeMenu(true); }
     return;
   }
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f" && !modal.open && !lightbox.open) {
     e.preventDefault();
     $("#search").focus();
     $("#search").select();
@@ -1032,7 +1124,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     copyImage(selectedSource).catch(report);
   }
-  if (lightbox.open && !editing && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+  if (lightbox.open && !photoPreview && !editing && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
     e.preventDefault();
     actions[e.key === "ArrowLeft" ? "prev-result" : "next-result"]();
   }
@@ -1178,3 +1270,188 @@ $("#context-menu").addEventListener("keydown", (e) => {
 function folderMenu(id, rect) {
   openMenu(button("rename-folder", "Rename", "", `data-id="${esc(id)}"`) + button("delete-folder", "Delete", "danger", `data-id="${esc(id)}"`), rect);
 }
+
+// Images opt into the fade only while loading; listeners are installed before
+// checking complete, including detached/cached prompt cards when reinserted.
+function prepareImages() {
+  for (const img of $$('img')) {
+    if (img.dataset.loadTracked) continue;
+    img.dataset.loadTracked = 'true';
+    const loaded = () => { img.classList.remove('image-loading'); img.classList.add('image-loaded'); };
+    img.addEventListener('load', loaded);
+    img.addEventListener('error', loaded);
+    if (img.complete) loaded();
+    else img.classList.add('image-loading');
+  }
+}
+const gridButtons = grid => [...grid.children].map(card => card.matches('button') ? card : $('button', card)).filter(Boolean);
+function prepareGrids() {
+  for (const grid of $$('.grid', main)) {
+    const buttons = gridButtons(grid);
+    const current = buttons.find(b => b === document.activeElement) || buttons.find(b => b.tabIndex === 0 && b.dataset.gridCard) || buttons[0];
+    for (const b of buttons) { b.dataset.gridCard = 'true'; b.tabIndex = b === current ? 0 : -1; }
+    for (const b of $$('button', grid)) if (!buttons.includes(b)) b.tabIndex = -1;
+  }
+}
+new MutationObserver(() => { if (!window.document) return; prepareImages(); prepareGrids(); }).observe(document.body, { childList: true, subtree: true });
+main.addEventListener('focusin', e => {
+  const grid = e.target.closest('.grid');
+  if (grid) for (const b of gridButtons(grid)) b.tabIndex = b === e.target ? 0 : -1;
+});
+let previewReturn = null, photoPreview = false;
+function restorePreviewFocus() {
+  if (previewReturn?.isConnected) previewReturn.focus();
+  else main.focus();
+}
+lightbox.addEventListener('close', restorePreviewFocus);
+function previewPhoto(item, card) {
+  if (!item) return;
+  previewReturn = card;
+  photoPreview = true;
+  lightItems = [];
+  $('#lightbox-content').innerHTML = `<div class="dialog-header"><h2>${esc(sourceName(item))}</h2>${button('close-lightbox', '✕', 'icon', 'aria-label="Close preview"')}</div>${mediaPreview(item, asset, esc, sourceName(item), 'lightbox-image')}`;
+  lightbox.showModal();
+  raiseToast();
+}
+function animateResult(card) {
+  if (!card || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  const img = $('img.lightbox-image', lightbox);
+  if (!img?.animate) return;
+  const from = card.getBoundingClientRect();
+  const animate = () => {
+    if (!img.isConnected || !lightbox.open) return;
+    const to = img.getBoundingClientRect();
+    if (!from.width || !from.height || !to.width || !to.height) return;
+    const css = getComputedStyle(document.documentElement);
+    img.animate([
+      { transformOrigin: 'top left', transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})`, opacity: 0 },
+      { transformOrigin: 'top left', transform: 'none', opacity: 1 },
+    ], { duration: parseFloat(css.getPropertyValue('--duration-preview')) || 220, easing: css.getPropertyValue('--ease-out').trim() || 'ease-out' });
+  };
+  if (img.complete) requestAnimationFrame(animate);
+  else img.addEventListener('load', () => requestAnimationFrame(animate), { once: true });
+}
+
+const palette = $('#palette'), paletteSearch = $('#palette-search');
+let paletteReturn = null, paletteRows = [], paletteIndex = 0;
+function openPalette() {
+  if (!library || $('dialog[open]')) return;
+  closeMenu();
+  paletteReturn = document.activeElement;
+  paletteSearch.value = '';
+  renderPalette();
+  palette.showModal();
+  raiseToast();
+  paletteSearch.focus();
+}
+palette.addEventListener('close', () => {
+  if (paletteReturn?.isConnected) paletteReturn.focus();
+  else main.focus();
+});
+function matchRank(text, q) {
+  text = text.toLocaleLowerCase();
+  const index = text.indexOf(q);
+  if (index < 0) return 3;
+  if (!index) return 0;
+  return /\s|[-_/]/.test(text[index - 1]) ? 1 : 2;
+}
+function renderPalette() {
+  const q = paletteSearch.value.trim().toLocaleLowerCase();
+  const groups = [
+    ['Prompts', library.prompts.map(p => ({ kind: 'prompt', id: p.id, name: p.title, secondary: p.categories.join(' · '), media: p.results[0], updatedAt: p.updatedAt, terms: [p.title, ...p.categories] }))],
+    ['Photos', library.sources.map(s => ({ kind: 'photo', id: s.id, name: sourceName(s), secondary: [folderLabel(folderOf(s)), ...s.tags].join(' · '), media: s, terms: [sourceName(s), ...s.tags] }))],
+    ['Categories', library.categories.map(name => ({ kind: 'category', name, terms: [name] }))],
+    ['Tags', library.tags.map(name => ({ kind: 'tag', name, terms: [name] }))],
+    ['Folders', folders().map(f => ({ kind: 'folder', id: f.id, name: f.name, terms: [f.name] }))],
+  ];
+  paletteRows = [];
+  const html = groups.map(([label, rows]) => {
+    if (!q && label !== 'Prompts') return '';
+    rows = rows.map(row => ({ ...row, rank: Math.min(...row.terms.map(t => matchRank(t, q))) })).filter(row => row.rank < 3);
+    rows.sort((a, b) => q ? a.rank - b.rank || a.name.localeCompare(b.name) : (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0));
+    rows = rows.slice(0, Math.min(8, 30 - paletteRows.length));
+    if (!rows.length) return '';
+    return `<div role="group" aria-label="${label}"><h3>${label}</h3>${rows.map(row => {
+      const index = paletteRows.push(row) - 1;
+      return `<div id="palette-option-${index}" role="option" aria-selected="false" data-palette-index="${index}">${row.media ? `<span class="palette-thumb">${mediaPoster(row.media, asset, esc, '')}</span>` : `<span class="tag-dot tone-${tagColor(row.name)}" aria-hidden="true"></span>`}<span><span>${esc(row.name)}</span><small>${esc(row.secondary || label)}</small></span></div>`;
+    }).join('')}</div>`;
+  }).join('');
+  $('#palette-results').innerHTML = html || '<p class="muted">No matches</p>';
+  paletteIndex = 0;
+  highlightPalette();
+}
+function highlightPalette() {
+  for (const row of $$('[role=option]', palette)) row.setAttribute('aria-selected', String(Number(row.dataset.paletteIndex) === paletteIndex));
+  const row = $(`#palette-option-${paletteIndex}`);
+  if (row) { paletteSearch.setAttribute('aria-activedescendant', row.id); row.scrollIntoView?.({ block: 'nearest' }); }
+  else paletteSearch.removeAttribute('aria-activedescendant');
+}
+function activatePalette() {
+  const row = paletteRows[paletteIndex];
+  if (!row) return;
+  palette.close();
+  query = ''; $('#search').value = ''; favorites = false;
+  if (row.kind === 'photo') { openSource(row.id); return; }
+  navigate(['tag', 'folder'].includes(row.kind) ? 'sources' : 'prompts');
+  filter = [];
+  if (row.kind === 'prompt') promptId = row.id;
+  if (row.kind === 'tag' || row.kind === 'category') filter = [row.name];
+  if (row.kind === 'folder') sourceFolder = row.id;
+  render();
+  main.focus();
+}
+paletteSearch.addEventListener('input', renderPalette);
+palette.addEventListener('mouseover', e => {
+  const row = e.target.closest('[data-palette-index]');
+  if (row) { paletteIndex = Number(row.dataset.paletteIndex); highlightPalette(); }
+});
+palette.addEventListener('click', e => {
+  const row = e.target.closest('[data-palette-index]');
+  if (row) { paletteIndex = Number(row.dataset.paletteIndex); activatePalette(); }
+});
+// Capture before existing handlers; dialogs and text editing retain their own keys.
+document.addEventListener('keydown', e => {
+  if (e.isComposing || e.defaultPrevented) return;
+  const key = e.key.toLowerCase(), command = e.metaKey || e.ctrlKey;
+  const editing = e.target.closest('input,textarea,select,[contenteditable]');
+  const handled = () => { e.preventDefault(); e.stopImmediatePropagation(); };
+  if (command && key === 'z' && !e.shiftKey && !editing && pendingTrash && !$('#toast').hidden) { handled(); undoTrash().catch(report); return; }
+  if (e.target.closest('#toast')) return;
+  if (palette.open) {
+    if (e.key === 'Escape') { handled(); palette.close(); }
+    else if (['ArrowDown', 'ArrowUp', 'Enter'].includes(e.key)) {
+      handled();
+      if (e.key === 'Enter') activatePalette();
+      else if (paletteRows.length) { paletteIndex = (paletteIndex + (e.key === 'ArrowDown' ? 1 : -1) + paletteRows.length) % paletteRows.length; highlightPalette(); }
+    }
+    return;
+  }
+  if (command && key === 'k' && !$('dialog[open]')) { handled(); openPalette(); return; }
+  if (lightbox.open && !editing && (e.key === ' ' || e.key === 'Escape')) { handled(); lightbox.close(); return; }
+  if (editing || $('dialog[open]') || !$('#context-menu').hidden || $('#library-menu').open) return;
+  if (command && ['1', '2', '3'].includes(key) && library) {
+    handled(); favorites = key === '3'; navigate(key === '2' ? 'sources' : 'prompts'); render(); main.focus(); return;
+  }
+  if (command || e.altKey) return;
+  const grid = e.target.closest('.grid');
+  if (!grid) return;
+  const cards = gridButtons(grid), index = cards.indexOf(e.target);
+  if (index < 0) return;
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
+    handled();
+    const top = cards[0].getBoundingClientRect().top;
+    const columns = cards.findIndex(c => c.getBoundingClientRect().top > top + 1);
+    const stride = columns > 0 ? columns : cards.length;
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? cards.length - 1 : index + ({ArrowLeft:-1, ArrowRight:1, ArrowUp:-stride, ArrowDown:stride})[e.key];
+    cards[Math.max(0, Math.min(cards.length - 1, next))]?.focus();
+  } else if (e.key === 'Enter') { handled(); e.target.click(); }
+  else if (e.key === ' ') {
+    handled();
+    const card = e.target;
+    if (card.dataset.action === 'prompt') {
+      const p = library.prompts.find(p => p.id === card.dataset.id);
+      if (p?.results.length) openResult(p.id, p.results[0].id);
+    } else if (card.dataset.action === 'result') openResult(card.dataset.pid, card.dataset.id);
+    else if (['source', 'try-source'].includes(card.dataset.action)) previewPhoto(source(card.dataset.id), card);
+  }
+}, true);

@@ -97,7 +97,7 @@ Prompt Library/
 Safety rules the app follows:
 
 - **Importing always copies.** Your original files are never moved or changed.
-- **Deleting moves to the macOS Trash**, so you can put things back from Finder.
+- **Deleting moves to the macOS Trash** after a six-second Undo window. Undo restores the item immediately; afterward, you can put it back from Finder.
 - **Saves are atomic**: a crash can't leave a half-written file.
 - **It never writes outside the library folder** (apart from its own small config file), and
   it can only show or play files from inside the current library.
@@ -188,6 +188,12 @@ make clean                   # remove build output
 | ⌘N | New prompt |
 | ⌘Enter | Submit the open form |
 | ⌘F | Search |
+| ⌘K | Command palette: jump to prompts, photos, categories, tags or folders |
+| ⌘Z | Undo Move to Trash during its six-second window (outside text fields) |
+| ⌘1 / ⌘2 / ⌘3 | Prompts / Photos / Favorites |
+| Arrow keys, Home / End | Move between grid cards |
+| Enter | Open the focused card |
+| Space | Preview a photo, result or prompt’s newest result; close the preview |
 | ⌘V | Paste an image into the current view |
 | ⌘C | Copy the selected photo |
 | ← → | Step through results in the full-size view |

@@ -110,7 +110,12 @@ Sortable by date, readable in Finder, collision-safe for one person.
 
 1. **Import always copies.** The original file is never moved or modified.
 2. **Delete never hard-deletes.** Deleting a source, prompt or result moves its files to the
-   macOS Trash, so it can be put back from Finder.
+   macOS Trash, so it can be put back from Finder. The UI hides the item immediately,
+   without a confirmation dialog, and offers Undo for six seconds (button or ⌘Z outside
+   text fields). The filesystem operation is deferred until expiry, another Trash action,
+   or a library switch. Pending items stay hidden across live refreshes; Undo or an IPC
+   failure restores them. Quitting during the window leaves files untouched. Tag/category
+   removal retains its inline confirmation.
 3. **Writes are atomic.** JSON and `prompt.md` are written to a temp file in the same folder
    and renamed into place, so a crash can't leave a half-written file.
 4. **The app never deletes the library folder** and never writes outside it (except its own

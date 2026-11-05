@@ -135,6 +135,7 @@ export function installMockBridge() {
             return {sources, prompts, warnings: []};
           }
           case "trash_item":
+            if (window.testState.trashError) throw new Error(window.testState.trashError);
             if (args.kind === "source") lib.sources = lib.sources.filter((s) => s.id !== args.id);
             else if (args.kind === "prompt") lib.prompts = lib.prompts.filter((p) => p.id !== args.id);
             else p.results = p.results.filter((r) => r.id !== args.id);

@@ -20,6 +20,17 @@ w.HTMLDialogElement.prototype.close = function () {
   this.dispatchEvent(new w.Event("close"));
 };
 w.eval(`(${installMockBridge.toString()})();`);
+// Control only the six-second Trash deadline, leaving UI timers real.
+const trashTimers = new Map();
+const realSetTimeout = w.setTimeout.bind(w), realClearTimeout = w.clearTimeout.bind(w);
+let timerId = -1;
+w.setTimeout = (fn, delay, ...args) => {
+  if (delay !== 6000) return realSetTimeout(fn, delay, ...args);
+  const id = timerId--; trashTimers.set(id, () => fn(...args)); return id;
+};
+w.clearTimeout = id => { trashTimers.delete(id); realClearTimeout(id); };
+async function expireTrash() { const callbacks = [...trashTimers.values()]; trashTimers.clear(); callbacks.forEach(fn => fn()); await tick(); }
+
 // Load the UI modules into the same DOM realm before the app entry point.
 for (const file of ["prompt-cards.js", "result-tools.js", "controls.js"]) {
   w.eval(
@@ -206,8 +217,10 @@ try {
   assert.equal(d.activeElement.textContent, "Move prompt to Trash");
   assert.ok(d.activeElement.classList.contains("danger"));
   await click("#context-menu [data-action=delete-prompt]");
-  assert.ok($("#modal").open, "Trash still asks for confirmation");
-  await act("close-modal");
+  assert.equal($("#modal").open, false, "Trash has no confirmation");
+  assert.equal($("#prompt-count").textContent, "0");
+  await act("undo-trash");
+  await act("prompt");
   w.testState.lib.prompts[0].sourceUrl = "https://example.com/original";
   await click("#reload");
   assert.equal($("#main [data-action=open-url]"), null);
@@ -233,7 +246,7 @@ try {
   assert.equal(clipboardReads, 1, "menu invokes paste handler");
   assert.ok($("#context-menu").hidden);
   w.navigator.clipboard.read = previousRead;
-  console.log("PASS: exact text copy and timed icon feedback, Add result and More menus, focus/Escape, original source and Trash confirmation");
+  console.log("PASS: exact text copy and timed icon feedback, Add result and More menus, focus/Escape, original source and deferred Trash");
 
   await act("add-result-menu");
   await click("#context-menu [data-action=pick-results]");
@@ -311,7 +324,7 @@ try {
   assert.equal($("#context-menu").hidden, false);
   await click("#context-menu [data-action=source]");
   await act("delete-source");
-  await save();
+  await expireTrash();
   assert.equal(w.testState.lib.sources.length, 0);
   await click("#nav-prompts");
   await act("prompt");
@@ -875,6 +888,161 @@ try {
   console.log("PASS: multi-tag filter toggles, AND matching and All clears");
   // JSDOM cannot emulate native WebKit control painting; verify that controls
   // explicitly opt out of it and that the document declares a light base scheme.
+  // Isolated in-memory fixtures for motion / Undo / keyboard / palette contracts.
+  await act('close-modal');
+  if ($('#lightbox').open) await act('close-lightbox');
+  const lib = w.testState.lib;
+  lib.folders = [{id:'folder-a', name:'Alpha folder'}];
+  lib.tags = ['Alpha tag']; lib.categories = ['Alpha category'];
+  lib.sources = Array.from({length:5}, (_, i) => ({id:`photo-${i}`, name:`Alpha photo ${i}`, file:`photo-${i}.png`, originalName:`photo-${i}.png`, path:`/tmp/photo-${i}.png`, thumbnail:`/tmp/thumb-${i}.png`, tags:['Alpha tag'], folder:'folder-a', note:'', createdAt:'2026-11-05'}));
+  lib.prompts = ['Alpha prefix', 'The Alpha word', 'xAlpha substring', 'Other'].map((title,i) => ({id:`prompt-${i}`,title,text:'test',needs:[],categories:i===3?['Other']:['Style'],favorite:i===0,notes:'',updatedAt:`2026-11-0${i+1}`,results:[0,1].map(j => ({id:`result-${i}-${j}`,path:`/tmp/result-${i}-${j}.png`,thumbnail:`/tmp/rthumb-${i}-${j}.png`,createdAt:'2026-11-05',sourcePhotos:['photo-0'],model:'',note:'',favorite:false}))}));
+  const keypress = (el,key,extra={}) => el.dispatchEvent(new w.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...extra}));
+  const cmd = key => keypress(d.activeElement || d.body,key,{metaKey:true});
+  const searchPalette = text => { $('#palette-search').value=text; $('#palette-search').dispatchEvent(new w.Event('input')); };
+  const trashCalls = () => w.testState.calls.filter(c => c.cmd==='trash_item');
+  $('#search').value=''; $('#search').dispatchEvent(new w.Event('input'));
+  await click('#reload'); await click('#nav-prompts');
+  // Clear an earlier test's category filter.
+  await click('[data-action=filter][data-tag=""]');
+  let cards = [...d.querySelectorAll('.prompt-card-open')];
+  assert.equal(cards.length,4);
+  cards.forEach((card,i) => card.getBoundingClientRect=()=>({top:Math.floor(i/2)*100,left:(i%2)*100,width:90,height:90}));
+  cards[0].focus();
+  keypress(cards[0],'ArrowRight'); assert.equal(d.activeElement,cards[1]);
+  keypress(cards[1],'ArrowDown'); assert.equal(d.activeElement,cards[3]);
+  keypress(cards[3],'ArrowUp'); assert.equal(d.activeElement,cards[1]);
+  keypress(cards[1],'Home'); assert.equal(d.activeElement,cards[0]);
+  keypress(cards[0],'End'); assert.equal(d.activeElement,cards[3]);
+  assert.equal(cards.filter(c=>c.tabIndex===0).length,1);
+  assert.ok([...d.querySelectorAll('.card-add-result')].every(c=>c.tabIndex===-1));
+  keypress(cards[3],' '); assert.ok($('#lightbox').open);
+  keypress(d.activeElement,' '); assert.equal($('#lightbox').open,false); assert.equal(d.activeElement,cards[3]);
+  keypress(cards[3],'Enter'); await tick(); assert.match($('#toolbar-heading').textContent,/Other/);
+  // Results and Try photos use the same roving contract, with Space previews.
+  const results = [...d.querySelectorAll('#main .result-card')];
+  results[0].focus(); keypress(results[0],'End'); assert.equal(d.activeElement,results[1]);
+  keypress(results[1],' '); assert.ok($('#lightbox').open); keypress(d.activeElement,'Escape');
+  assert.equal(d.activeElement,results[1]);
+  if (!$('#try-grid')) await act('toggle-try');
+  const tryCards = [...d.querySelectorAll('.try-card')];
+  tryCards[0].focus(); keypress(tryCards[0],'ArrowRight'); assert.equal(d.activeElement,tryCards[1]);
+  keypress(tryCards[1],' '); assert.match($('#lightbox-content').textContent,/Alpha photo 1/);
+  keypress(d.activeElement,'Escape'); assert.equal(d.activeElement,tryCards[1]);
+  cmd('2'); assert.ok($('#nav-sources').classList.contains('active'));
+  const folderCard=$('[data-action=open-folder]'); folderCard.focus(); keypress(folderCard,'Enter'); await tick();
+  const photos=[...d.querySelectorAll('#main .source-card')];
+  photos[0].focus(); keypress(photos[0],'End'); assert.equal(d.activeElement,photos[4]);
+  keypress(photos[4],' '); assert.ok($('#lightbox').open); keypress(d.activeElement,'Escape'); assert.equal(d.activeElement,photos[4]);
+  keypress(photos[4],'Enter'); await tick(); assert.ok($('#modal').open);
+  cmd('1'); assert.ok($('#nav-sources').classList.contains('active'),'dialog blocks view shortcut');
+  await act('close-modal'); mainFocus();
+  cmd('3'); assert.ok($('#favorites').classList.contains('active'));
+  cmd('1'); assert.ok($('#nav-prompts').classList.contains('active'));
+  function mainFocus() { $('#main').focus(); }
+  // Palette ranking, cap, safe labels, focus return and all five destinations.
+  $('#search').focus(); const paletteOrigin=d.activeElement; cmd('k'); assert.ok($('#palette').open);
+  assert.equal(d.activeElement,$('#palette-search'));
+  assert.match($('#palette-results [role=option]').textContent,/Other/,'recent prompts sorted by updatedAt');
+  searchPalette('alpha');
+  assert.deepEqual([...d.querySelectorAll('#palette-results [role=group]')].map(g=>g.getAttribute('aria-label')),['Prompts','Photos','Categories','Tags','Folders']);
+  assert.deepEqual([...d.querySelectorAll('#palette-results [role=group]')][0].querySelectorAll('[role=option]').length,3);
+  assert.match($('#palette-option-0').textContent,/Alpha prefix/);
+  assert.match($('#palette-option-1').textContent,/The Alpha word/);
+  assert.match($('#palette-option-2').textContent,/xAlpha substring/);
+  keypress($('#palette-search'),'ArrowDown'); assert.equal($('#palette-search').getAttribute('aria-activedescendant'),'palette-option-1');
+  keypress($('#palette-search'),'Escape'); assert.equal(d.activeElement,paletteOrigin);
+  for (const [term, expected] of [['Alpha prefix','prompt'],['Alpha photo 0','photo'],['Alpha category','category'],['Alpha tag','tag'],['Alpha folder','folder']]) {
+    mainFocus(); cmd('k'); searchPalette(term);
+    const groupLabel=({prompt:'Prompts',photo:'Photos',category:'Categories',tag:'Tags',folder:'Folders'})[expected];
+    const row=$(`#palette-results [role=group][aria-label="${groupLabel}"] [role=option]`);
+    assert.ok(row,expected);
+    const target=Number(row.dataset.paletteIndex);
+    for(let i=0;i<target;i++) keypress($('#palette-search'),'ArrowDown');
+    keypress($('#palette-search'),'Enter'); await tick();
+    assert.equal($('#palette').open,false);
+    if(expected==='photo') { assert.ok($('#modal').open); await act('close-modal'); }
+    if(expected==='prompt') assert.match($('#toolbar-heading').textContent,/Alpha prefix/);
+    if(expected==='category'||expected==='tag') assert.ok($(`[data-action=filter][data-tag="${term}"].active`));
+    if(expected==='folder') assert.match($('#toolbar-heading').textContent,/Alpha folder/);
+  }
+  // Photos: immediate hiding, watcher filtering, text undo isolation, button undo.
+  await click('[data-action=source][data-id=photo-0]');
+  const beforeTrash=trashCalls().length;
+  await act('delete-source'); assert.equal($('#modal').open,false);
+  assert.equal($('#main [data-id=photo-0]'),null); assert.equal($('#source-count').textContent,'4');
+  assert.equal(trashCalls().length,beforeTrash);
+  w.dispatchEvent(new w.Event('beforeunload')); assert.equal(trashCalls().length,beforeTrash,'quitting does not commit');
+  w.testState.listeners['library-changed']({payload:lib.root}); await tick();
+  assert.equal($('#main [data-id=photo-0]'),null);
+  $('#search').focus(); cmd('z'); await tick(); assert.ok($('[data-action=undo-trash]'));
+  mainFocus(); cmd('z'); await tick(); assert.equal($('#source-count').textContent,'5');
+  assert.equal(trashCalls().length,beforeTrash);
+  await click('[data-action=source][data-id=photo-0]'); await act('delete-source');
+  await act('undo-trash'); assert.equal(trashCalls().length,beforeTrash);
+  await click('[data-action=source][data-id=photo-0]'); await act('delete-source');
+  await expireTrash(); assert.equal(trashCalls().length,beforeTrash+1);
+  assert.deepEqual(JSON.parse(JSON.stringify(trashCalls().at(-1).args)),{kind:'source',id:'photo-0',promptId:null});
+  await expireTrash(); assert.equal(trashCalls().length,beforeTrash+1);
+  // Second Trash commits the previous item; failure restores the hidden item.
+  await click('[data-action=source][data-id=photo-1]'); await act('delete-source');
+  await click('[data-action=source][data-id=photo-2]'); await act('delete-source');
+  assert.equal(trashCalls().at(-1).args.id,'photo-1');
+  w.testState.trashError='Trash unavailable'; await expireTrash();
+  assert.match($('#toast').textContent,/Trash unavailable/); assert.ok($('#main [data-id=photo-2]'));
+  w.testState.trashError=null;
+  // Prompt deletion navigates back; undo restores the prompt without IPC.
+  mainFocus(); cmd('1'); await click('[data-action=filter][data-tag=""]');
+  await click('[data-action=prompt][data-id=prompt-0]'); await act('prompt-menu'); await act('delete-prompt');
+  assert.equal($('#main [data-action=prompt][data-id=prompt-0]'),null);
+  await act('undo-trash'); assert.ok($('#main [data-action=prompt][data-id=prompt-0]'));
+  // Removing a lightbox result advances, and undo restores its list.
+  await click('[data-action=prompt][data-id=prompt-0]'); await click('#main .result-card');
+  await act('delete-result'); assert.ok($('#lightbox').open); assert.equal($('[data-action=undo-trash]').closest('dialog'),$('#lightbox'),'Undo remains in modal focus scope'); assert.match($('#lightbox .dialog-header').textContent,/1 \/ 1/);
+  await act('undo-trash'); assert.match($('#lightbox .dialog-header').textContent,/2/);
+  await act('delete-result'); await act('delete-result'); assert.equal($('#lightbox').open,false);
+  await act('undo-trash');
+  // A library switch flushes the final pending entry before set_library.
+  mainFocus(); cmd('2'); await click('[data-action=filter][data-tag="Alpha tag"]');
+  if (!$('[data-action=source]')) await click('[data-action=open-folder][data-id=folder-a]');
+  await click('[data-action=source]'); await act('delete-source');
+  const callStart=w.testState.calls.length;
+  await click('#switch-library');
+  const commands=w.testState.calls.slice(callStart).map(c=>c.cmd);
+  assert.ok(commands.indexOf('trash_item') < commands.indexOf('set_library'));
+  // Cached-complete and error images are never left transparent.
+  const completeImage=d.createElement('img'); Object.defineProperty(completeImage,'complete',{value:true});
+  $('#main').append(completeImage); await tick(); assert.ok(!completeImage.classList.contains('image-loading'));
+  const brokenImage=d.createElement('img'); Object.defineProperty(brokenImage,'complete',{value:false});
+  $('#main').append(brokenImage); await tick(); brokenImage.dispatchEvent(new w.Event('error'));
+  assert.ok(!brokenImage.classList.contains('image-loading'));
+  // Result FLIP honors reduced motion and missing geometry.
+  mainFocus(); cmd('1'); await click('[data-action=filter][data-tag=""]');
+  await click('[data-action=prompt][data-id=prompt-1]'); await click('#main .result-card');
+  const previewImg=$('img.lightbox-image');
+  Object.defineProperty(previewImg,'complete',{value:true});
+  previewImg.getBoundingClientRect=()=>({left:100,top:100,width:400,height:400});
+  let animationCount=0; previewImg.animate=()=>{animationCount++;};
+  const originCard={getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})};
+  w.matchMedia=()=>({matches:true}); w.animateResult(originCard);
+  await new Promise(r=>setTimeout(r,30)); assert.equal(animationCount,0);
+  w.matchMedia=()=>({matches:false}); w.animateResult(originCard);
+  await new Promise(r=>setTimeout(r,30)); assert.equal(animationCount,1);
+  w.animateResult(null); await new Promise(r=>setTimeout(r,30)); assert.equal(animationCount,1);
+  await act('close-lightbox');
+  // Large groups remain bounded, and mouse hover/click activates the highlighted row.
+  const savedCategories=[...lib.categories], savedTags=[...lib.tags], savedFolders=[...lib.folders];
+  lib.sources.push({...lib.sources[0],id:'cap-photo-1',name:'Alpha extra 1'}, {...lib.sources[0],id:'cap-photo-2',name:'Alpha extra 2'});
+  for(let i=0;i<12;i++) { lib.categories.push(`Alpha category ${i}`); lib.tags.push(`Alpha tag ${i}`); lib.folders.push({id:`extra-${i}`,name:`Alpha folder ${i}`}); }
+  await click('#reload'); mainFocus(); cmd('k'); searchPalette('alpha');
+  assert.equal(d.querySelectorAll('#palette [role=option]').length,30);
+  for(const group of d.querySelectorAll('#palette [role=group]')) assert.ok(group.querySelectorAll('[role=option]').length<=8);
+  const mouseRow=$('#palette-option-1'); mouseRow.dispatchEvent(new w.MouseEvent('mouseover',{bubbles:true}));
+  assert.equal($('#palette-search').getAttribute('aria-activedescendant'),mouseRow.id);
+  mouseRow.click(); assert.equal($('#palette').open,false); assert.match($('#toolbar-heading').textContent,/The Alpha word/);
+  lib.categories=savedCategories; lib.tags=savedTags; lib.folders=savedFolders;
+
+  console.log('PASS: deferred Trash/Undo/timeout/second action/watcher/failure/library switch; grid arrows/Home/End/Enter/Space/focus; Cmd+1–3; palette grouping/ranking/keyboard destinations/focus; complete/error images');
+
   const style = d.createElement("style");
   style.textContent = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   d.head.append(style);
