@@ -29,11 +29,11 @@ Global options can appear before or after the command:
 - `where`: `{libraryPath, configPath}`; resolves paths without opening the library.
 - `tags`: array of photo-tag vocabulary strings.
 - `categories`: array of prompt-category vocabulary strings.
-- `categories --from-needs yes`: one-time helper that adds every prompt's needs to its
+- `categories --from-needs yes`: one-time helper that adds every prompt's legacy needs to its
   categories (keeps prompt text and `updatedAt`, so the prompt order stays the same) and
   returns `{promptsChanged, categories}`. Safe to rerun.
 - `folders`: array of `{id,name,createdAt}` folder records; supports `--json`.
-- `list [--limit N]`: newest-updated prompts, each with `id`, `title`, `needs`,
+- `list [--limit N]`: newest-updated prompts, each with `id`, `title`,
   `categories`, and `resultCount`; `tags` mirrors categories for one compatibility release.
 - `add`: saves one prompt and one or more generated results.
 
@@ -43,7 +43,7 @@ Options for `add`:
 |---|---|
 | `--prompt-text TEXT` / `--prompt-file PATH` | Exactly one; file is UTF-8, text retained exactly |
 | `--title TEXT` | Default: first 40 Unicode characters after collapsing whitespace |
-| `--needs a,b` | Input-photo tags |
+| `--needs a,b` | Deprecated alias for `--source-tags` (prompts no longer store needs) |
 | `--categories a,b` | Prompt categories |
 | `--tags a,b` | Deprecated alias for `--categories`; both flags merge if supplied |
 | `--source-url URL` | Original prompt URL; used only for new prompts |
@@ -75,7 +75,7 @@ deduplicate.
 
 Prompt comparison normalizes CRLF to LF and trims outer whitespace. Stored text is never
 normalized. An existing match retains its title, text, URLs, notes, favorite and creation
-date; only new needs/categories are merged (updating the modification timestamp when changed).
+date; only new categories are merged (updating the modification timestamp when changed).
 If multiple pre-existing prompts match, the newest-updated match is used.
 
 A source ID must exist and have an accessible library image. Paths are compared to source
@@ -83,7 +83,7 @@ images by size, then exact bytes, independent of filename. A match reuses the so
 unchanged; otherwise the library imports a copy. Repeated sources in one invocation also
 deduplicate. All results receive the resolved source IDs.
 
-Unknown needs and source tags join the photo-tag vocabulary; prompt categories join the
+Unknown source tags join the photo-tag vocabulary; prompt categories join the
 independent category vocabulary. Both the app and CLI
 use an exclusive library lock `.prompt-gallery.lock`, created with `create_new`, retrying for up to
 five seconds. Locks older than 30 seconds are reclaimed. A scope guard removes its own lock
@@ -93,7 +93,7 @@ is reread and tags are merged, so old app snapshots cannot discard new agent tag
 while updating source/prompt metadata and then the vocabulary. They return changed-record
 counts and warnings, or stop with partial-progress details on a write failure. After the one-time legacy vocabulary migration (see spec), library loads
 never repopulate missing vocabulary entries. CLI vocabulary additions use caller-supplied
-tags only; updating a matched prompt does not re-add unchanged existing needs tags.
+tags only.
 The lock does not cover all other record writes;
 simultaneous prompt matching/imports are not a global transaction and can create duplicate
 prompts. Do not run multiple saves of the same batch concurrently.

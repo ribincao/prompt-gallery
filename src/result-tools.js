@@ -8,13 +8,11 @@ export function sourceName(s) { return stem(s.name?.trim() || s.originalName, s.
 export function resultName(r, date) { return stem(r.name, r.file || r.path) || date(r.createdAt); }
 
 // Shared source-photo controls and transient multi-selection in a prompt's result grid.
-export function sourcePhotoPicker({ sources, needs = [], chosen = [], asset, esc }) {
-  const matches = (s) => s.tags.some((tag) => needs.includes(tag));
-  const ordered = [...sources.filter(matches), ...sources.filter((s) => !matches(s))];
-  const options = ordered
+export function sourcePhotoPicker({ sources, chosen = [], asset, esc }) {
+  const options = sources
     .map(
       (s) =>
-        `<label class="source-option"><input type="checkbox" name="sources" value="${s.id}" ${chosen.includes(s.id) ? "checked" : ""}><span class="source-option-photo">${s.thumbnail ? `<img src="${asset(s.thumbnail)}" alt="" loading="lazy" decoding="async">` : s.kind === "audio" ? audioPlaceholder(s, esc, sourceName(s)) : '<span class="muted">No preview</span>'}${mediaBadge(s)}</span><span class="source-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg></span><span class="source-option-name">${esc(sourceName(s))}</span>${matches(s) ? "<small>Matches prompt</small>" : ""}</label>`,
+        `<label class="source-option"><input type="checkbox" name="sources" value="${s.id}" ${chosen.includes(s.id) ? "checked" : ""}><span class="source-option-photo">${s.thumbnail ? `<img src="${asset(s.thumbnail)}" alt="" loading="lazy" decoding="async">` : s.kind === "audio" ? audioPlaceholder(s, esc, sourceName(s)) : '<span class="muted">No preview</span>'}${mediaBadge(s)}</span><span class="source-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg></span><span class="source-option-name">${esc(sourceName(s))}</span></label>`,
     )
     .join("");
   const missing = chosen
@@ -24,7 +22,7 @@ export function sourcePhotoPicker({ sources, needs = [], chosen = [], asset, esc
         `<label class="check missing-source-option"><input type="checkbox" name="sources" value="${esc(id)}" checked>Source photo missing</label>`,
     )
     .join("");
-  return `<fieldset class="source-picker"><legend>Photos used</legend><p class="muted">Click photos to toggle. ${needs.length ? "Photos tagged with any of the prompt’s needs appear first." : "Choose any photos used."}</p><div class="source-picker-grid">${options}</div>${!sources.length ? "<small>No photos in this library.</small>" : ""}${missing}</fieldset>`;
+  return `<fieldset class="source-picker"><legend>Photos used</legend><p class="muted">Click photos to toggle.</p><div class="source-picker-grid">${options}</div>${!sources.length ? "<small>No photos in this library.</small>" : ""}${missing}</fieldset>`;
 }
 
 export function createResultSelection({ asset, esc, button, date }) {

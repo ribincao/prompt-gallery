@@ -33,7 +33,7 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
         if arg == "--help" || arg == "-h" {
-            return Ok(json!("pgallery [--library DIR] <where|tags|categories|folders|list|add> [--json]; add --categories a,b (--tags is a deprecated alias); categories --from-needs yes copies prompt needs into categories once, --needs and --source-tags are photo tags"));
+            return Ok(json!("pgallery [--library DIR] <where|tags|categories|folders|list|add> [--json]; add --categories a,b (--tags is a deprecated alias); categories --from-needs yes copies old prompt needs into categories once; --source-tags tags imported photos (--needs is a deprecated alias)"));
         }
 
         if arg == "--json" {
@@ -223,7 +223,7 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
             .iter()
             .take(limit)
             .map(|p| json!({
-                "id":p.meta.id, "title":p.meta.fields.title, "needs":p.meta.fields.needs,
+                "id":p.meta.id, "title":p.meta.fields.title,
                 "categories":p.meta.fields.categories, "tags":p.meta.fields.categories, "resultCount":p.results.len()
             }))
             .collect::<Vec<_>>()));
@@ -233,6 +233,9 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
     }
     let text = text.unwrap();
     let mut source_ids = Vec::new();
+    // Prompt needs are retired; the deprecated --needs flag tags imported photos instead.
+    let mut source_tags = tags("--source-tags");
+    merge(&mut source_tags, tags("--needs"));
     let mut sources = Vec::new();
     let mut source_names = many("--source-name").into_iter();
     for input in many("--source") {
@@ -260,7 +263,7 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
                     &root,
                     Some(Path::new(&input)),
                     None,
-                    tags("--source-tags"),
+                    source_tags.clone(),
                 )?;
                 if let Some(folder) = one("--source-folder") {
                     let folder = library::create_folder(&root, &folder, true)?;
@@ -278,7 +281,6 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
         merge(&mut source_ids, vec![id.clone()]);
         sources.push(json!({"id":id,"reused":reused}));
     }
-    let needs = tags("--needs");
     let mut new_tags = tags("--categories");
     merge(&mut new_tags, tags("--tags"));
     let (pid, created) = if let Some(p) = lib
@@ -287,9 +289,8 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
         .find(|p| normalized(&p.text) == normalized(&text))
     {
         let mut fields = p.meta.fields.clone();
-        merge(&mut fields.needs, needs.clone());
         merge(&mut fields.categories, new_tags.clone());
-        if fields.needs != p.meta.fields.needs || fields.categories != p.meta.fields.categories {
+        if fields.categories != p.meta.fields.categories {
             library::update_prompt(&root, &p.meta.id, fields, p.text.clone())?;
         }
         (p.meta.id.clone(), false)
@@ -307,7 +308,6 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
                 &root,
                 PromptInput {
                     title,
-                    needs: needs.clone(),
                     categories: new_tags.clone(),
                     source_url: one("--source-url").unwrap_or_default(),
                     ..Default::default()
@@ -319,7 +319,7 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
     };
     library::set_tags(
         &root,
-        needs.into_iter().chain(tags("--source-tags")).collect(),
+        source_tags,
     )?;
     library::set_categories(&root, new_tags)?;
     let fields = ResultInput {

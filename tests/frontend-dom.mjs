@@ -120,19 +120,15 @@ try {
   assert.ok(w.testState.calls.some((c) => c.cmd === "copy_image_to_clipboard"));
   await click("#nav-prompts");
   await act("new-prompt");
-  assert.equal(d.querySelectorAll('.token-control').length, 2);
-  assert.ok($('.token-control[data-name=needs]'));
+  assert.equal(d.querySelectorAll('.token-control').length, 1);
+  assert.equal($('.token-control[data-name=needs]'), null, "prompts no longer have Needs");
   assert.ok($('.token-control[data-name=categories]'));
   $('.token-control[data-name=categories] .token-input').focus();
   assert.equal($('.control-popover').textContent, 'style-only');
-  $('.token-control[data-name=needs] .token-input').focus();
-  assert.ok($('.control-popover').textContent.includes('single'));
-  assert.ok(!$('.control-popover').textContent.includes('style-only'));
   assert.equal($('#dialog-form .checks'), null);
   input("title", "Portrait <test>");
   const text = "  Illustrate this portrait.\nKeep the person recognizable.\n";
   input("text", text);
-  await addTag("needs", "single");
   await addTag("categories", "watercolor");
   await save();
   assert.equal($("#toolbar h1").textContent, "Portrait <test>");
@@ -377,15 +373,47 @@ try {
   const otherPhoto = photo("0001", "Pet.png", ["pet"]);
   const matchingGroup = photo("0002", "Group.png", ["group"]);
   const matchingSingle = photo("0003", "Single.png", ["single"]);
-  w.testState.lib.sources = [otherPhoto, matchingGroup, matchingSingle];
-  first.needs = ["single", "group"];
+  w.testState.lib.sources = [matchingGroup, matchingSingle, otherPhoto];
+  first.needs = ["pet"]; // legacy needs are kept on disk but no longer shown or used
   $("#search").value = "";
   $("#search").dispatchEvent(new w.Event("input"));
   await click("#reload");
   await click(`.prompt-card[data-prompt-id="${first.id}"] [data-action=prompt]`);
   assert.equal($("#suggested-photos"), null);
+  assert.doesNotMatch($("#toolbar").textContent + $("#main .page-header")?.textContent, /\bpet\b/);
+
+  // Try with another photo: all photos, AND tag filter, search, select + Cmd-C copies the original.
+  assert.equal($("#try-panel"), null, "collapsed by default");
+  await act("toggle-try");
+  const tryIds = () => [...d.querySelectorAll("#try-grid .try-card")].map((c) => c.dataset.id);
+  assert.deepEqual(tryIds(), [matchingGroup.id, matchingSingle.id, otherPhoto.id], "every photo, not just matches");
+  await click('#try-chips [data-tag="pet"]');
+  assert.deepEqual(tryIds(), [otherPhoto.id]);
+  await click('#try-chips [data-tag="group"]');
+  assert.deepEqual(tryIds(), [], "selected tags combine with AND");
+  assert.match($("#try-grid").textContent, /No photos match/);
+  await click('#try-chips [data-tag="pet"]');
+  assert.deepEqual(tryIds(), [matchingGroup.id]);
+  await click('#try-chips [data-tag=""]');
+  $("#try-search").value = "sing";
+  $("#try-search").dispatchEvent(new w.Event("input", { bubbles: true }));
+  assert.deepEqual(tryIds(), [matchingSingle.id]);
+  await click(`#try-grid [data-id="${matchingSingle.id}"]`);
+  assert.equal($("#modal").open, false, "clicking selects instead of opening the inspector");
+  assert.ok($(`#try-grid [data-id="${matchingSingle.id}"]`).classList.contains("selected"));
+  w.testState.calls.length = 0;
+  d.body.dispatchEvent(new w.KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true }));
+  await tick();
+  assert.ok(w.testState.calls.some((c) => c.cmd === "copy_image_to_clipboard" && c.args.path === matchingSingle.path));
+  await act("copy-prompt");
+  assert.equal(w.testState.copied, first.text);
+  $("#try-search").value = "";
+  $("#try-search").dispatchEvent(new w.Event("input", { bubbles: true }));
+  await act("toggle-try");
+  assert.equal($("#try-panel"), null);
+
   await act("edit-prompt");
-  assert.match($("#dialog-form").textContent, /listed first when you link results/);
+  assert.doesNotMatch($("#dialog-form").textContent, /needs/i);
   await act("close-modal");
   await act("pick-results");
   assert.deepEqual(
@@ -393,8 +421,8 @@ try {
     [matchingGroup.id, matchingSingle.id, otherPhoto.id],
   );
   assert.equal(d.querySelectorAll(".source-option-photo img").length, 3);
+  assert.deepEqual([...d.querySelectorAll(".source-option input:checked")].map((el) => el.value), [matchingSingle.id], "the photo picked in Try is pre-linked");
   await click(".source-option:nth-child(1)");
-  await click(".source-option:nth-child(2)");
   assert.equal(d.querySelectorAll(".source-option input:checked").length, 2);
   await save();
   const newResult = first.results[0];
@@ -728,7 +756,7 @@ try {
   console.log("PASS: folder grid, breadcrumb, import membership, Move to, cross-folder filters, rename/delete, extension-free names, source/result video cards and playback controls");
 
   console.log(
-    "PASS: first run, source import/tag/edit/copy, exact prompt text, safe HTML, matching photos, result defaults, drop, lightbox arrows, chat, favorites/search, context menu, Trash, missing references, image/text paste, Cmd+F and Cmd+N, 0/1/2/5-result cards, thumbnail cap/order, Retina drop targeting/highlights, card picker, hovered/focused paste, stale-target rejection, matching-first thumbnail toggles, lightbox source previews, bulk link/clear preserving other metadata, Cmd/Shift selection, any-tag matching, fallback strip, and tooltip/reveal cleanup.",
+    "PASS: first run, source import/tag/edit/copy, exact prompt text, safe HTML, matching photos, result defaults, drop, lightbox arrows, chat, favorites/search, context menu, Trash, missing references, image/text paste, Cmd+F and Cmd+N, 0/1/2/5-result cards, thumbnail cap/order, Retina drop targeting/highlights, card picker, hovered/focused paste, stale-target rejection, try-with-a-photo panel (all photos, AND tags, search, ⌘C, pre-linking), lightbox source previews, bulk link/clear preserving other metadata, Cmd/Shift selection, any-tag matching, fallback strip, and tooltip/reveal cleanup.",
   );
 } finally {
   w.close();

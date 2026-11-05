@@ -20,13 +20,13 @@ cat, a landscape, a character sheet.
 
 Prompt Gallery keeps all three things together and linked:
 
-- **Prompts**: the text, where you found it, its categories, and what kind of photo it needs.
+- **Prompts**: the text, where you found it, and its categories. Any photo works with any prompt.
 - **Photos**: your images, videos and audio, tagged and organized in virtual folders.
 - **Results**: every image, video or audio file a prompt produced, with the source photo it used and a link back
   to the ChatGPT conversation.
 
-Open a prompt, copy it, drag a photo from **Photos** into ChatGPT, and paste the result back
-in.
+Open a prompt, copy it, pick any photo right there under **Try with another photo**, drag it
+into ChatGPT, and paste the result back in.
 
 ![Prompt detail with copy button](docs/screenshots/prompt-detail.png)
 
@@ -46,8 +46,9 @@ Drag the thumbnail straight into the chat instead.
   pile with a count. Drop files onto a card to add results to it.
 - **Categories** to find prompts fast (Design, Story, Sticker…), with one-click **Copy prompt**
   and **Favorites**.
-- **Needs**: the kind of photo a prompt wants (single, couple, group…). Photos with those tags
-  are listed first when you link results to the photos they came from.
+- **Try with another photo**: on a prompt's page, open a panel with every photo you have, filter
+  it by tags (they combine) or by name, then drag a photo into ChatGPT or click it and press ⌘C.
+  The photo you picked is pre-linked when you add the result.
 - **Add results fast**: paste a copied image with ⌘V, drop files, or pick them. A ChatGPT link on
   your clipboard is filled in automatically, so **Open chat** takes you back later.
 
@@ -86,7 +87,7 @@ Prompt Library/
   sources/              your photos (copied in unchanged) + one .json each
   prompts/<id>/
     prompt.md           the prompt text, exactly as written
-    meta.json           title, needs, categories, notes, source link
+    meta.json           title, categories, notes, source link
     results/            generated images + one .json each
   .thumbs/              thumbnails, safe to delete (rebuilt automatically)
 ```
@@ -168,14 +169,14 @@ make clean                   # remove build output
    came from (Camera, AI characters, References…) and tag what's in them (people, pets, shot
    type). Open a photo to rename it, change its folder or edit its tags.
 3. **Create a prompt** with **+ New** (⌘N), or paste a block of text into an empty prompt grid.
-   Give it a title, categories, and the kinds of photo it needs.
-4. **Try it.** Open the prompt, click **Copy prompt**, then find a photo in **Photos** and send
-   it to ChatGPT: drag it into the chat, or select it, press ⌘C and paste there.
+   Give it a title and categories.
+4. **Try it.** Open the prompt, click **Copy prompt**, then **Choose a photo…** under **Try with
+   another photo**. Filter by tags or name and drag the photo into ChatGPT, or click it, press ⌘C
+   and paste there.
 5. **Save the results.** Copy the generated image in ChatGPT and press ⌘V in the prompt, or drop
    the files onto the prompt card. Click the photos you used and keep the chat link.
 6. **Organize.** Click **Edit** next to **Categories** (on Prompts) or **Tags** (on Photos) to
-   rename, merge or remove them. Removing a photo tag also removes it from prompt needs;
-   categories only affect prompts.
+   rename, merge or remove them. Tags only affect photos; categories only affect prompts.
 7. **Come back later.** Filter, search, open a result full size, and use **Open chat** to jump
    back into the conversation.
 

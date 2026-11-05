@@ -126,7 +126,7 @@ source), and a Windows port (see README).
 - Source and result edit dialogs share a two-column inspector. Folder and tag controls in
   `controls.js` use hidden form values and dispose popovers when dialogs close or change.
   Keep popovers below header actions; Escape first closes a popover or reverts a title edit.
-  Needs and categories remain separate token fields; bulk source-photo selection is unchanged.
+  Prompts have no Needs field any more (see below); bulk source-photo selection is unchanged.
 
 ## Two independent vocabularies
 
@@ -137,3 +137,12 @@ categories key exists. Save only categories. When the category vocabulary is abs
 under TagLock atomically: union prompt categories in first-seen order, keep existing photo tags/source
 usage/needs in photo tags. Busy or read-only loads compute in memory and defer persistence.
 Never bulk-rewrite prompt metadata for migration or resurrect removed names after migration.
+
+## Needs are retired (2026-11-05)
+
+Any photo works with any prompt, so the app no longer shows or edits prompt `needs`, and the
+result picker lists photos in library order. The field stays in `meta.json` for backward
+compatibility: old values load, are preserved on save and still follow tag rename/remove, but
+nothing new is written there. `pgallery add --needs` is a deprecated alias for `--source-tags`.
+The prompt page's **Try with another photo** panel lists every photo with its own tag (AND) and
+name filter; clicking a photo sets `selectedSource`, so ⌘C copies it and Add result pre-links it.

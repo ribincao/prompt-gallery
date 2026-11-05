@@ -1195,3 +1195,14 @@ button.primary { background: var(--button-blue); border-color: var(--button-blue
 
 :root { --media-backdrop: color-mix(in srgb, var(--text) 82%, var(--bg)); }
 @media (prefers-color-scheme: dark) { :root { --media-backdrop: color-mix(in srgb, var(--bg) 90%, var(--text)); } }
+
+/* Try with another photo (prompt detail) */
+.try-section { border-top: 1px solid var(--line); margin-top: 8px; }
+.try-section .section-header .actions { display: flex; gap: 8px; }
+.try-filters { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+#try-search { max-width: 280px; }
+.try-filters .chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 64px; overflow: auto; }
+.try-filters .chip small { color: var(--muted); margin-left: 3px; }
+.try-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); max-height: 440px; overflow: auto; padding: 4px; margin-top: 8px; }
+.try-grid .card-body { height: 26px; }
+.try-grid > p { grid-column: 1 / -1; }

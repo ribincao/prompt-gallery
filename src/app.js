@@ -83,7 +83,7 @@ const promptGrid = createPromptGrid({ main, asset, esc, badges, button, mediaBad
 const date = (text) => new Date(text).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const resultSelection = createResultSelection({ asset, esc, button, date });
 const photoPicker = (p, chosen = []) =>
-  sourcePhotoPicker({ sources: library.sources, needs: p.needs, chosen, asset, esc });
+  sourcePhotoPicker({ sources: library.sources, chosen, asset, esc });
 const resultMeta = (r, sourcePhotos) => ({
   sourcePhotos,
   name: r.name ?? null,
@@ -274,10 +274,48 @@ function renderView() {
   if (items.length) promptGrid.mount($(".grid", main), items, library.root, library.prompts.map(p => p.id));
   promptGrid.afterRender();
 }
+// "Try with another photo": every photo, filtered by photo tags (AND) and name, ready to drag or ⌘C.
+const tryState = { open: false, tags: [], query: "" };
+try { tryState.open = localStorage.getItem("gallery-try-open") === "true"; } catch {}
+function tryMatches() {
+  const q = tryState.query.trim().toLowerCase();
+  return library.sources.filter((s) => tryState.tags.every((t) => s.tags.includes(t)) &&
+    (!q || [sourceName(s), s.note, ...s.tags].some((v) => (v || "").toLowerCase().includes(q))));
+}
+function tryGrid() {
+  const items = tryMatches();
+  return items.length
+    ? items.map((s) => `<button class="card source-card try-card ${s.id === selectedSource ? "selected" : ""}" data-action="try-source" data-id="${s.id}" aria-label="Select ${esc(sourceName(s))}">${mediaPoster(s, asset, esc, sourceName(s))}<div class="card-body"><h3>${esc(sourceName(s))}</h3></div></button>`).join("")
+    : `<p class="muted">${library.sources.length ? "No photos match these filters." : "No photos yet. Add some in Photos."}</p>`;
+}
+function tryChips() {
+  const usage = new Map();
+  for (const s of library.sources) for (const t of new Set(s.tags)) usage.set(t, (usage.get(t) || 0) + 1);
+  const tags = [...usage.keys()].sort((a, b) => usage.get(b) - usage.get(a) || a.localeCompare(b));
+  for (const t of tryState.tags) if (!tags.includes(t)) tags.push(t);
+  return button("try-tag", "All", `chip ${tryState.tags.length ? "" : "active"}`, `data-tag="" aria-pressed="${!tryState.tags.length}"`) +
+    tags.map((t) => button("try-tag", `${esc(t)} <small>${usage.get(t) || 0}</small>`, `chip ${tryState.tags.includes(t) ? "active" : ""}`, `data-tag="${esc(t)}" aria-pressed="${tryState.tags.includes(t)}"`)).join("");
+}
+function tryPanel() {
+  const head = `<div class="section-header"><h2>Try with another photo</h2><div class="actions">${tryState.open ? button("copy-prompt", "Copy prompt") : ""}${button("toggle-try", tryState.open ? "Hide photos" : "Choose a photo…", "", `id="toggle-try" aria-expanded="${tryState.open}" aria-controls="try-panel"`)}</div></div>`;
+  if (!tryState.open) return `<section class="try-section">${head}</section>`;
+  return `<section class="try-section">${head}<div id="try-panel"><div class="try-filters"><input id="try-search" type="search" placeholder="Search photos" value="${esc(tryState.query)}" autocomplete="off" aria-label="Search photos"><div class="chips" id="try-chips">${tryChips()}</div></div><small class="muted">Copy the prompt, then drag a photo into ChatGPT. Or click a photo and press ⌘C.</small><div class="grid try-grid" id="try-grid">${tryGrid()}</div></div></section>`;
+}
+function refreshTry() {
+  const grid = $("#try-grid", main), chips = $("#try-chips", main);
+  if (grid) grid.innerHTML = tryGrid();
+  if (chips) chips.innerHTML = tryChips();
+}
+main.addEventListener("input", (e) => {
+  if (e.target.id !== "try-search") return;
+  tryState.query = e.target.value;
+  const grid = $("#try-grid", main);
+  if (grid) grid.innerHTML = tryGrid();
+});
 function renderPrompt() {
   const p = prompt();
   resultSelection.begin(p.id, p.results);
-  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.needs.length ? p.needs : ["text-only"])}${badges(p.categories)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<pre class="prompt-text">${esc(p.text)}</pre>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}<section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
+  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.categories)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<pre class="prompt-text">${esc(p.text)}</pre>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}${tryPanel()}<section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
 }
 
 let pendingLibraryRefresh = false;
@@ -340,12 +378,12 @@ function editPrompt(existing = null, text = "") {
   const p = existing;
   showModal(
     p ? "Edit prompt" : "New prompt",
-    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 4, full: true })}<div class="full"><label class="field">Photos it needs<small>Photos with these tags are listed first when you link results. Leave empty for a text-only prompt.</small></label>${tagTokens("needs", p?.needs, "Needs")}</div>${tagTokens("categories", p?.categories, "Categories")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
+    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 4, full: true })}${tagTokens("categories", p?.categories, "Categories")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
     async (form) => {
       const values = new FormData(form),
         meta = {
           title: values.get("title").trim(),
-          needs: collectedTags(form, "needs"),
+          needs: p?.needs || [], // Needs are retired; keep whatever older prompts stored.
           categories: values.getAll("categories"),
           sourceUrl: values.get("sourceUrl").trim(),
           notes: values.get("notes"),
@@ -657,6 +695,22 @@ const actions = {
     promptId = null;
     render();
   },
+  "toggle-try": () => {
+    tryState.open = !tryState.open;
+    try { localStorage.setItem("gallery-try-open", String(tryState.open)); } catch {}
+    render();
+    if (tryState.open) $("#try-panel", main)?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  },
+  "try-tag": (el) => {
+    const tag = el.dataset.tag;
+    tryState.tags = !tag ? [] : tryState.tags.includes(tag) ? tryState.tags.filter((t) => t !== tag) : [...tryState.tags, tag];
+    refreshTry();
+  },
+  "try-source": (el) => {
+    if (dragging) return;
+    selectedSource = el.dataset.id;
+    $$(".try-card", main).forEach((c) => c.classList.toggle("selected", c.dataset.id === selectedSource));
+  },
   source: (el, event) => {
     if (dragging) return;
     if (view === "sources" && !promptId && (sourceMode || event.metaKey || event.ctrlKey || event.shiftKey)) {
@@ -783,7 +837,7 @@ $("#favorites").addEventListener("click", () => {
 let managerCategories = false;
 let tagRows = [];
 let tagEdit = null;
-const tagUse = (row) => managerCategories ? `${row.prompts} prompts` : `${row.sources} photo${row.sources === 1 ? "" : "s"} · ${row.prompts} prompt${row.prompts === 1 ? "" : "s"} using this in Needs`;
+const tagUse = (row) => managerCategories ? `${row.prompts} prompts` : `${row.sources} photo${row.sources === 1 ? "" : "s"}`;
 async function manageTags() {
   managerCategories = view === "prompts";
   tagRows = await invoke(managerCategories ? "category_usage" : "tag_usage");
@@ -804,7 +858,7 @@ function renderTagRows() {
     if (editing) {
       controls = tagEdit.mode === "rename"
         ? `<label class="field">Rename ${esc(row.tag)}<input id="rename-tag" value="${esc(tagEdit.to ?? row.tag)}" aria-label="New ${managerCategories ? "category" : "tag"} name"></label><p class="tag-confirm" aria-live="polite"></p><div class="actions"><button type="button" data-tag-op="confirm" data-index="${index}" class="primary">Save</button><button type="button" data-tag-op="cancel">Cancel</button></div>`
-        : `<p>Remove '${esc(row.tag)}' from ${managerCategories ? `${row.prompts} prompts` : `${row.sources} photos and ${row.prompts} prompt needs`}? Photos, prompts and results are kept.</p><div class="actions"><button type="button" class="danger" data-tag-op="confirm" data-index="${index}">Remove</button><button type="button" data-tag-op="cancel">Cancel</button></div>`;
+        : `<p>Remove '${esc(row.tag)}' from ${managerCategories ? `${row.prompts} prompts` : `${row.sources} photos`}? Photos, prompts and results are kept.</p><div class="actions"><button type="button" class="danger" data-tag-op="confirm" data-index="${index}">Remove</button><button type="button" data-tag-op="cancel">Cancel</button></div>`;
     }
     return `<div class="tag-row ${editing ? "editing" : ""}">${controls}</div>`;
   }).join("");
@@ -814,7 +868,7 @@ function renderTagRows() {
       tagEdit.to = input.value.trim();
       tagEdit.confirmedMerge = false;
       const merge = tagRows.some((r) => r.tag.toLowerCase() === tagEdit.to.toLowerCase() && r.tag !== tagEdit.tag);
-      $(".tag-confirm").textContent = merge ? `This will merge '${tagEdit.tag}' into '${tagEdit.to}' on ${managerCategories ? "prompt categories" : "photos and prompt needs"}.` : `Rename on ${managerCategories ? "prompt categories" : "photos and prompt needs"}.`;
+      $(".tag-confirm").textContent = merge ? `This will merge '${tagEdit.tag}' into '${tagEdit.to}' on ${managerCategories ? "prompt categories" : "photos"}.` : `Rename on ${managerCategories ? "prompt categories" : "photos"}.`;
     });
     input.dispatchEvent(new Event("input"));
     input.focus();
@@ -837,7 +891,7 @@ async function changeTag(command, args) {
     await refresh();
     await manageTags();
     if (result) {
-      const message = managerCategories ? `Updated ${result.prompts} prompts.` : `Updated ${result.sources} photos and ${result.prompts} prompt needs.`;
+      const message = managerCategories ? `Updated ${result.prompts} prompts.` : `Updated ${result.sources} photos.`;
       $("#modal-error").textContent = [message, ...(result.warnings || [])].join(" ");
     }
   } catch (error) {

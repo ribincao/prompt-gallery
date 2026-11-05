@@ -15,15 +15,15 @@ uploaded anywhere; the app only reads and writes a folder on your Mac.
 
 ```
 Source photo ──used by──▶ Result ◀──produced by── Prompt
-   (tags)                (chat URL)             (text, "needs" tags)
+   (tags)                (chat URL)             (text, categories)
 ```
 
 - **Source photo**: an original image of yours, tagged by what it shows.
-- **Prompt**: the prompt text, plus which kind of source photo it needs.
+- **Prompt**: the prompt text and its categories. Any source photo works with any prompt.
 - **Result**: an image a prompt generated, remembering which source photo(s) it used and
   the ChatGPT conversation it came from.
 
-The result source picker lists photos whose tags match prompt needs first.
+The result source picker lists every photo in library order.
 
 ## Repo vs library
 
@@ -78,7 +78,7 @@ Sortable by date, readable in Finder, collision-safe for one person.
 
 `prompts/<id>/meta.json`
 ```json
-{ "id": "…", "title": "Pixar-style family portrait", "needs": ["group"],
+{ "id": "…", "title": "Pixar-style family portrait",
   "categories": ["3d", "cute"], "sourceUrl": "https://… (where I found it)",
   "notes": "", "favorite": false,
   "createdAt": "…", "updatedAt": "…" }
@@ -97,10 +97,12 @@ Sortable by date, readable in Finder, collision-safe for one person.
   `originalName` or the result date. `originalName`, IDs, filenames, thumbnails and links
   never change when renaming. Search includes custom names and source original filenames;
   result names also find their containing prompt.
-- `needs` and source `tags` share one vocabulary. Built-in tags: `single`, `couple`,
+- Source `tags` use one vocabulary. Built-in tags: `single`, `couple`,
   `group`, `pet`, `landscape`, `character-sheet`, `object`. Users can add, remove, rename or merge their own tags; the
   full list is stored in `library.json` under `tags`.
-- A prompt with `needs: []` is text-only (no source photo).
+- Legacy `needs` (retired 2026-11-05): older prompts may still have a `needs` array of photo
+  tags. It loads, is preserved on save and follows tag rename/remove, but the app neither shows
+  nor edits it and the CLI no longer writes it.
 - If a result references a source photo that was deleted, the result still shows, with
   "source photo missing".
 
@@ -151,9 +153,12 @@ Search matches title, prompt text, tags and notes. The data model is unchanged.
 
 **Prompt detail** (opens when a card is clicked):
 - Title and the full prompt text, with a big **Copy prompt** button (shows "Copied").
-- Edit button: edit title, text, needs, tags, source URL, notes.
-- No suggested-photos strip (removed once folders and tags made Photos easy to browse).
-  `needs` only orders the source picker: photos whose tags intersect `needs` come first.
+- Edit button: edit title, text, categories, source URL, notes.
+- **Try with another photo**: collapsed by default (open state remembered in
+  `gallery-try-open`). Opened, it shows a name search, photo-tag chips with counts (selected
+  tags combine with AND; **All** clears) and a grid of every matching photo. Clicking a photo
+  selects it (⌘C copies the original; Add result pre-links it); dragging starts a native drag
+  into other apps. A second **Copy prompt** button sits in the panel header.
 - **Results**: a grid of this prompt's results. Click opens a lightbox (arrow keys to step
   through, Esc to close) showing the image, its source photo(s), date, note and an
   "Open chat" link that opens `chatUrl` in the default browser. Linked photos appear
@@ -161,12 +166,12 @@ Search matches title, prompt text, tags and notes. The data model is unchanged.
   Shift-click enable multi-selection; **Set photos…** replaces the source links on
   every selected result while preserving chat URL, model, note, and favorite status.
 - **Add result**: paste (Cmd+V), drop files, or pick files. After adding, a small form
-  asks for the source photo(s) used (pre-filled with the last one picked from the strip)
+  asks for the source photo(s) used (pre-filled with the photo last picked in the Try panel)
   and the chat URL (pre-filled from the clipboard if it's a chatgpt.com URL). Add/Edit result
   and batch linking share a grid of thumbnail toggles (accent ring and check when selected),
-  showing photos matching any prompt needs-tag first, then the remaining photos.
+  listing every photo in library order.
 
-**New prompt** (Cmd+N): title, prompt text, needs, tags, source URL. Saving creates the
+**New prompt** (Cmd+N): title, prompt text, categories, source URL, notes. Saving creates the
 folder. Pasting a long block of text into the empty grid also opens this form with the
 text filled in.
 
@@ -257,7 +262,7 @@ remains additive, and CLI adds only explicitly supplied tags to it.
 Form dialogs keep Cancel and the primary submit action in a fixed header. Errors are
 visible below the title, outside the form's scroll area. Enter in single-line inputs and
 Cmd+Enter submit; Esc cancels. The prompt textarea starts at four rows and grows to about
-12, then scrolls internally. Needs and their compact add field share a row; categories and
+12, then scrolls internally. Categories and
 source URL share a row; notes use two rows. Source previews and result-photo pickers are
 shorter. Source and result edit forms begin with a Name field prefilled with the display
 name without a matching extension. A source with a custom name shows its original filename stem underneath. Saving an
@@ -398,5 +403,5 @@ Prompts and Favorites show Categories; Photos shows Tags. Sidebar counts exclude
 prompts per category, photos per tag. Each view retains its filter. Expansion keys are
 `gallery-categories-collapsed` and `gallery-tags-collapsed`, defaulting to expanded.
 The shared manager adapts its heading, counts and confirmations. Prompt Categories tokens
-suggest only categories; Needs and photo Tags suggest only photo tags. Prompt detail keeps
-needs badges alongside categories. Search matches prompt categories and photo tags.
+suggest only categories; photo Tags suggest only photo tags. Prompt detail shows category
+badges only. Search matches prompt categories and photo tags.
