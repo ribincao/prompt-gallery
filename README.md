@@ -20,7 +20,7 @@ cat, a landscape, a character sheet.
 
 Prompt Gallery keeps all three things together and linked:
 
-- **Prompts**: the text, where you found it, and what kind of source photo it needs.
+- **Prompts**: the text, where you found it, its categories, and what kind of photo it needs.
 - **Photos**: your images, videos and audio, tagged and organized in virtual folders.
 - **Results**: every image, video or audio file a prompt produced, with the source photo it used and a link back
   to the ChatGPT conversation.
@@ -32,7 +32,7 @@ in.
 
 ### Copy a photo, paste it into ChatGPT
 
-No more hunting for the original file in Finder or Photos. Open any source photo, click
+No more hunting for the original file in Finder or Photos. Open any photo, click
 **Copy image** (or select it and press ⌘C), then press ⌘V in ChatGPT. The app puts the original
 file on the clipboard, so ChatGPT gets the full-quality photo, HEIC included. Prefer dragging?
 Drag the thumbnail straight into the chat instead.
@@ -41,36 +41,36 @@ Drag the thumbnail straight into the chat instead.
 
 ## Features
 
-- **Extension-free names.** Name fields and labels omit the file extension. Saving a matching
-  extension strips it; original filenames and files remain untouched.
-- **Virtual source folders.** Open Photos to see folder covers and counts. Create,
-  rename, or delete folders; deleting a folder puts its items in Unfiled. Select items with
-  Select, Cmd-click, or Shift-click and use Move to…. Drag to a folder target or the breadcrumb
-  root (Unfiled). Imports inside a folder inherit it. Search and tag filters show matches
-  across all folders with folder labels; clearing them returns to the folder grid.
-- **Videos alongside images.** Import MP4, MOV and M4V as sources or results, including via
-  `pgallery`. Posters show a play badge and duration when available. Open a video to play it
-  with controls; Copy video copies its original file URL. Video paste is not supported.
-  Quick Look creates posters within an eight-second budget; unavailable posters show a placeholder.
-  Each video is attempted once per app session; restart to retry a failed poster.
-
+**Prompts**
 - **Prompt grid with stacked results.** Each card shows a prompt's newest results as a little
-  pile of photos with a count.
-- **One-click Copy prompt.**
-- **Needs.** A prompt can say what kind of photo it needs (`single`, `couple`, `group`, `pet`,
-  `landscape`, `character-sheet`, `object`, or your own tags); photos with those tags are listed
-  first when you link results to their source photos.
-- **Copy and paste a photo into ChatGPT** with one click (or ⌘C), or drag it straight into the
-  chat. No digging for the original file; you always send the original, and nothing is exported.
-- **Add results fast**: paste a copied image with ⌘V, drop files onto a prompt card, or pick
-  them. A ChatGPT link on your clipboard is filled in automatically.
-- **Link results to photos** by clicking thumbnails, one result or many at once.
-- **Independent categories and tags.** Categories organize prompts; tags organize photos.
-  Search prompts by category and photos by tag, alongside title, text and notes; mark favorites.
-- **Combine filters.** Click tags in the sidebar to stack them (for example **Libin** +
-  **Family** shows only photos with both); click a tag again to drop it, or **All tags** to clear.
-  Categories on the Prompts side work the same way.
-- **Light and dark mode**, following the system.
+  pile with a count. Drop files onto a card to add results to it.
+- **Categories** to find prompts fast (Design, Story, Sticker…), with one-click **Copy prompt**
+  and **Favorites**.
+- **Needs**: the kind of photo a prompt wants (single, couple, group…). Photos with those tags
+  are listed first when you link results to the photos they came from.
+- **Add results fast**: paste a copied image with ⌘V, drop files, or pick them. A ChatGPT link on
+  your clipboard is filled in automatically, so **Open chat** takes you back later.
+
+**Photos**
+- **Images, videos and audio**: JPG, PNG, WEBP, HEIC, GIF, MP4, MOV, M4V, MP3, M4A, AAC, WAV,
+  AIF/AIFF and FLAC. Videos and audio play inside the app; posters show the duration.
+- **Folders** (one level) for where a photo came from, and **tags** for what's in it. Tags and
+  categories are separate lists, so tidying one never touches the other.
+- **An inspector for every photo and result**: large preview, inline name (no file extension),
+  folder menu, tag chips with autocomplete, note, and the results it was used in.
+- **Copy or drag the original into ChatGPT** (⌘C, **Copy image**, or drag the thumbnail).
+
+**Finding things**
+- **Stack filters**: click tags in the sidebar to combine them (**Libin** + **Family** shows only
+  photos with both); click a tag again to drop it, or **All tags** to clear. Categories work the
+  same way on the Prompts side.
+- **Search** titles, prompt text, names, notes, tags and categories (⌘F).
+- **Manage tags / Manage categories**: add, rename, merge or remove. Photos, prompts and results
+  are never deleted.
+
+**Everywhere**
+- Native-feeling Mac window with an integrated title bar, light and dark mode, and an agent CLI
+  (`pgallery`) for saving AI output from Claude Code or Codex.
 
 ## Your data stays yours
 
@@ -97,7 +97,9 @@ Safety rules the app follows:
 - **Deleting moves to the macOS Trash**, so you can put things back from Finder.
 - **Saves are atomic**: a crash can't leave a half-written file.
 - **It never writes outside the library folder** (apart from its own small config file), and
-  it can only display images and stream videos from inside the current library.
+  it can only show or play files from inside the current library.
+- **Older libraries upgrade themselves**: when you open one, prompt style tags become
+  categories and your photo tags stay as they are. Nothing is renamed or moved.
 
 The library is a normal folder, so back it up like one. Time Machine covers it. iCloud Drive is
 *not* a backup: deletions sync everywhere, and "Optimize Mac Storage" can remove originals.
@@ -162,33 +164,20 @@ make clean                   # remove build output
 
 1. **Choose a library folder** on first launch. An empty folder (or a new one) works best.
    Switch later from **Library** at the bottom of the sidebar.
-2. **Add photos.** Go to *Photos* and drop, paste or pick images, then tag them
-   by what they show. A photo can have several tags. Open a photo for a two-column inspector with a media
-   preview and details. Click its title to edit the display name; results have the same
-   inspector under **Edit**. Enter or blur keeps a title edit; Esc reverts it. Names are trimmed and limited
-   to 200 characters. Clear the field to restore the original filename stem (sources) or date
-   (results). Renaming changes metadata only; files and links keep their IDs.
-   Use **Folder** to choose a folder or **New folder…** to create one inline. The same
-   menu appears in **Move to…**. Type in **+ Add tag** to choose or create tags; Enter or
-   comma adds a chip, × removes it, and Backspace in an empty field removes the last chip.
-   Arrow keys navigate suggestions and Esc closes the menu.
-3. **Create a prompt** with **+ New** (⌘N). Paste the text, give it a title, and choose
-   which kinds of photo it needs. Needs and categories use separate token fields. Pasting a long block of text into an empty prompt grid starts
-   a new prompt for you.
-4. **Try it.** Open the prompt, click **Copy prompt**, then find a photo in **Photos** (folders,
-   tags or search) and send it to ChatGPT: drag it into the chat, or select it, press ⌘C and
-   paste there.
+2. **Add photos.** In **Photos**, drop, paste or pick files. Put them in folders by where they
+   came from (Camera, AI characters, References…) and tag what's in them (people, pets, shot
+   type). Open a photo to rename it, change its folder or edit its tags.
+3. **Create a prompt** with **+ New** (⌘N), or paste a block of text into an empty prompt grid.
+   Give it a title, categories, and the kinds of photo it needs.
+4. **Try it.** Open the prompt, click **Copy prompt**, then find a photo in **Photos** and send
+   it to ChatGPT: drag it into the chat, or select it, press ⌘C and paste there.
 5. **Save the results.** Copy the generated image in ChatGPT and press ⌘V in the prompt, or drop
    the files onto the prompt card. Click the photos you used and keep the chat link.
-6. **Manage tags and categories.** Prompts and Favorites show **Categories** in the sidebar;
-   Photos shows **Tags**. Click **Edit** to add, rename, merge or remove entries from the
-   corresponding vocabulary. Categories affect prompts only; tags affect photos and prompt
-   needs. Neither operation deletes photos, prompts or results. Each view remembers its own
-   filter and expanded list. Category counts show prompts; tag counts show photos, with prompt
-   needs counts also available in Manage tags.
-7. **Come back later.** Search, filter by one or more categories or photo tags (click to add,
-   click again to remove; items must match all of them), open a result full size, and use **Open chat** to
-   jump back into the conversation.
+6. **Organize.** Click **Edit** next to **Categories** (on Prompts) or **Tags** (on Photos) to
+   rename, merge or remove them. Removing a photo tag also removes it from prompt needs;
+   categories only affect prompts.
+7. **Come back later.** Filter, search, open a result full size, and use **Open chat** to jump
+   back into the conversation.
 
 | Shortcut | Does |
 |---|---|
@@ -196,19 +185,13 @@ make clean                   # remove build output
 | ⌘Enter | Submit the open form |
 | ⌘F | Search |
 | ⌘V | Paste an image into the current view |
-| ⌘C | Copy the selected source photo |
+| ⌘C | Copy the selected photo |
 | ← → | Step through results in the full-size view |
 | Esc | Close a dialog or the full-size view |
 
-Form dialogs keep **Cancel** and the primary action beside the title, with errors just
-below. ⌘Enter saves the form; Esc cancels when no control is consuming it. Enter in a
-name, folder-creation or tag field commits that edit; other single-line fields submit. Long content scrolls beneath the
-header; long prompt text and tag-manager lists have their own scroll area.
-
-Tag operations save each changed record atomically, but the whole operation is not a
-transaction. If a write fails, the app reports how many records were already updated and
-refreshes the library. Unreadable records are skipped with warnings; repair them before
-retrying if you need those records included.
+Dialogs keep **Cancel** and **Save** next to the title; ⌘Enter saves and Esc cancels.
+Tag and category changes save each record atomically; if a write fails, the app reports how many
+records were already updated.
 
 ## Use it from an AI agent
 
@@ -231,7 +214,7 @@ The skill offers to save images after generation and uses the shared storage CLI
 
 ```sh
 make install-cli
-pgallery add --prompt-file /tmp/prompt.txt --result /tmp/generated.png --model "image-tool" --tags portrait --json
+pgallery add --prompt-file /tmp/prompt.txt --result /tmp/generated.png --model "image-tool" --categories Portrait --json
 ```
 
 Open the app once to choose a library, or pass `--library <folder>`. An empty existing
@@ -257,11 +240,12 @@ Tools and WebView2). Pull requests are welcome.
 ## How it's built
 
 - **`src/`**: the interface. Plain HTML, CSS and JavaScript, no framework and no network
-  requests.
+  requests. `controls.js` holds the shared folder menu and tag fields.
 - **`src-tauri/`**: the Rust side, which does all file work through a small set of commands:
   - `library.rs`: storage, imports, thumbnails, Trash.
   - `commands.rs`: the commands the interface calls.
-  - `asset.rs`: serves images and video byte ranges, only from the current library.
+  - `asset.rs`: serves images, and video and audio byte ranges, only from the current library.
+  - `cli.rs`: the `pgallery` command-line tool.
   - `native.rs`: the macOS clipboard.
 - **`docs/spec.md`**: the full design: data format, screens and safety rules.
 
@@ -277,19 +261,3 @@ file for how to run them.
 ## License
 
 [MIT](LICENSE)
-
-### Audio and compact browsing
-
-Import MP3, M4A, AAC, WAV, AIF/AIFF and FLAC as sources or results. Photos contains
-all source media. Audio shows embedded cover art when Quick Look supplies it, otherwise
-a tinted music-note tile. Open it for playback controls; **Copy audio** copies the original
-file URL. Audio paste is not supported. Duration is best-effort via Spotlight.
-
-The integrated title bar holds search and view actions. Sidebar tags are ordered by usage,
-with all tags shown by default and **Show less** to collapse to the top six; **Edit** opens tag management.
-Square previews, one-line names and muted tags keep the grid compact in light and dark mode.
-
-Existing libraries migrate their shared vocabulary on load: prompt style tags become categories,
-while existing photo tags, source tags and prompt needs remain photo tags (removed builtins are not re-added). Prompt files convert from `tags`
-to `categories` only when saved. A busy lock or read-only library uses the migrated vocabulary
-in memory until it can be saved. New `library.json` files include `"categories": []` beside `tags`.
