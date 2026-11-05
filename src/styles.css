@@ -825,9 +825,9 @@ a {
   font-size: 11px;
   margin: 5px 0 12px;
 }
-.picker-filters { display: flex; flex-direction: column; gap: 6px; margin: 0 0 8px; }
+.picker-filters { display: flex; flex-direction: column; gap: 10px; margin: 0 0 12px; }
 .picker-search { max-width: 240px; }
-.picker-filters .chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 56px; overflow: auto; }
+.picker-filters .chips { display: flex; flex-wrap: wrap; gap: 8px; max-height: 76px; overflow: auto; padding: 2px 0; }
 .picker-filters .chip small { color: var(--muted); margin-left: 3px; }
 .source-option[hidden] { display: none; }
 .source-picker-grid {
@@ -990,19 +990,20 @@ a {
 #modal-error:empty { display: none; }
 #dialog-form { padding: 16px 20px 20px; overflow-y: auto; min-height: 0; }
 #modal .form-grid { gap: 12px; }
-#modal label.field { gap: 5px; }
+#modal label.field { gap: 8px; }
+#modal label.field small { margin-top: -2px; }
 #modal .checks { gap: 6px; }
 #modal .check { padding: 4px 8px; }
 #modal textarea[name="text"] { min-height: 96px; max-height: 272px; overflow-y: auto; }
 .needs-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 6px; }
 .needs-row .checks { flex: 1; }
 .needs-row > .field { width: 150px; flex: none; }
-#modal .tag-editor { margin-top: 10px; }
+#modal .tag-editor { margin-top: 18px; }
 #modal .name-editor { margin-bottom: 8px; }
 #modal .name-editor > small { display: block; margin-top: 4px; overflow-wrap: anywhere; }
 #modal .source-preview { max-height: 170px; margin-bottom: 8px; }
 #modal .source-uses { margin-top: 12px; }
-#modal .source-picker-grid { max-height: 180px; overflow-y: auto; }
+#modal .source-picker-grid { max-height: 230px; overflow-y: auto; }
 .add-tag { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 12px; }
 .add-tag .field { flex: 1; }
 #tag-list { max-height: 48dvh; overflow-y: auto; }
