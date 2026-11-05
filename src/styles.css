@@ -705,6 +705,9 @@ dialog::backdrop {
   color: var(--bg);
   box-shadow: var(--shadow);
   z-index: 10000;
+  inset: auto auto 24px 50%;
+  margin: 0;
+  border: 0;
   max-width: 70vw;
   overflow-wrap: anywhere;
   font-size: 13px;
@@ -1109,7 +1112,15 @@ video.source-preview, video.lightbox-image { width: 100%; object-fit: contain; }
 .folder-cover { background: var(--sidebar); color: var(--muted); font-size: 48px; }
 .section-header { margin: 16px 0 12px; }
 .section-header h2 { font-size: 13px; }
-.prompt-text { font-size: 13px; line-height: 1.6; padding: 16px; max-height: 220px; border-radius: 8px; margin-bottom: 12px; }
+.prompt-text { font-size: 13px; line-height: 1.6; padding: 16px; max-height: 220px; overflow: hidden; border-radius: 8px; margin: 0; }
+.prompt-text strong { font-weight: 600; }
+.prompt-text-wrap { position: relative; margin-bottom: 12px; }
+.prompt-text-wrap.expanded .prompt-text { max-height: none; }
+/* A fade at the bottom shows there is more text; Show more sits on top of it. */
+.prompt-text-wrap.clamped .prompt-text { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent); }
+.prompt-more { display: block; margin: 8px auto 0; font-size: 12px; }
+.prompt-more[hidden] { display: none; }
+#modal:focus { outline: none; }
 .warning ul { max-height: none; overflow: visible; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

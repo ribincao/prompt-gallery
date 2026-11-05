@@ -99,11 +99,18 @@ function editedName(value, displayed, stored, file) {
   if ([...name].length > 200) throw new Error("Names must be 200 characters or fewer");
   return name || null;
 }
+// The toast is a manual popover so it joins the top layer above any open dialog;
+// hiding and re-showing it puts it on top of a dialog opened after it.
 function toast(message) {
+  const el = $("#toast");
   clearTimeout(toastTimer);
-  $("#toast").textContent = message;
-  $("#toast").hidden = false;
-  toastTimer = setTimeout(() => ($("#toast").hidden = true), 5000);
+  el.textContent = message;
+  el.hidden = false;
+  try { if (el.matches(":popover-open")) el.hidePopover(); el.showPopover(); } catch {}
+  toastTimer = setTimeout(() => {
+    el.hidden = true;
+    try { el.hidePopover(); } catch {}
+  }, 5000);
 }
 function report(error) {
   const text = String(error);
@@ -166,7 +173,8 @@ function showModal(title, body, submit) {
     update();
   }
   if (!modal.open) modal.showModal();
-  requestAnimationFrame(() => $(modal.classList.contains("inspector-dialog") ? ".inline-name" : "input:not([type=checkbox]):not([type=hidden]),textarea,button", $("#dialog-form"))?.focus());
+  // Inspectors open without focusing the name, so it isn't shown selected and a stray key can't replace it.
+  requestAnimationFrame(() => modal.classList.contains("inspector-dialog") ? modal.focus() : $("input:not([type=checkbox]):not([type=hidden]),textarea,button", $("#dialog-form"))?.focus());
 }
 function closeModal() {
   dialogControls?.destroy();
@@ -312,10 +320,22 @@ main.addEventListener("input", (e) => {
   const grid = $("#try-grid", main);
   if (grid) grid.innerHTML = tryGrid();
 });
+// Shows **bold** from pasted ChatGPT prompts; Copy prompt still copies the raw text.
+const promptMarkup = (text) => esc(text).replace(/\*\*([^*\n][^\n]*?)\*\*/g, "<strong>$1</strong>");
+let promptTextExpanded = null;
+function measurePromptText() {
+  const wrap = $(".prompt-text-wrap", main), pre = $(".prompt-text", main), more = $(".prompt-more", main);
+  if (!wrap || !more) return;
+  const long = wrap.classList.contains("expanded") || pre.scrollHeight > pre.clientHeight + 2;
+  more.hidden = !long;
+  wrap.classList.toggle("clamped", long && !wrap.classList.contains("expanded"));
+}
 function renderPrompt() {
   const p = prompt();
   resultSelection.begin(p.id, p.results);
-  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.categories)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<pre class="prompt-text">${esc(p.text)}</pre>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}${tryPanel()}<section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
+  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.categories)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<div class="prompt-text-wrap ${promptTextExpanded === p.id ? "expanded" : ""}"><pre class="prompt-text">${promptMarkup(p.text)}</pre>${button("toggle-prompt-text", promptTextExpanded === p.id ? "Show less" : "Show more", "prompt-more", "hidden")}</div>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}${tryPanel()}<section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
+  measurePromptText();
+  requestAnimationFrame(measurePromptText);
 }
 
 let pendingLibraryRefresh = false;
@@ -472,7 +492,7 @@ async function addResults(data, pid = promptId) {
   const chatUrl = await chatFromClipboard();
   showModal(
     "Add results",
-    `<p class="muted">${data.paths ? data.paths.length : "1"} image${data.paths?.length === 1 ? "" : "s"} ready to add to <strong>${esc(targetPrompt.title)}</strong>.</p>${photoPicker(targetPrompt, selectedSource ? [selectedSource] : [])}<div class="tag-editor">${field("Chat URL", "chatUrl", chatUrl, { hint: "Optional. Open this conversation later in your default browser." })}</div><div class="tag-editor">${field("Note", "note", "", { area: true })}</div>${footer("Add results")}`,
+    `<p class="muted">${(data.paths?.length ?? 1) === 1 ? "1 image" : `${data.paths.length} images`} ready to add to <strong>${esc(targetPrompt.title)}</strong>.</p>${photoPicker(targetPrompt, selectedSource ? [selectedSource] : [])}<div class="tag-editor">${field("Chat URL", "chatUrl", chatUrl, { hint: "Optional. Open this conversation later in your default browser." })}</div><div class="tag-editor">${field("Note", "note", "", { area: true })}</div>${footer("Add results")}`,
     async (form) => {
       const values = new FormData(form);
       try {
@@ -694,6 +714,13 @@ const actions = {
     filter = !tag ? [] : filter.includes(tag) ? filter.filter((t) => t !== tag) : [...filter, tag];
     promptId = null;
     render();
+  },
+  "toggle-prompt-text": () => {
+    promptTextExpanded = promptTextExpanded === promptId ? null : promptId;
+    const wrap = $(".prompt-text-wrap", main);
+    wrap.classList.toggle("expanded", promptTextExpanded === promptId);
+    $(".prompt-more", main).textContent = promptTextExpanded === promptId ? "Show less" : "Show more";
+    measurePromptText();
   },
   "toggle-try": () => {
     tryState.open = !tryState.open;
