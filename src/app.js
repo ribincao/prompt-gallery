@@ -819,7 +819,7 @@ $("#switch-library").addEventListener("click", () => {
 $("#reload").addEventListener("click", () => {
   if (library) task(refresh);
 });
-$("#nav-prompts").addEventListener("click", () => navigate("prompts"));
+$("#nav-prompts").addEventListener("click", () => { favorites = false; navigate("prompts"); });
 $("#nav-sources").addEventListener("click", () => navigate("sources"));
 $("#search").addEventListener("input", (e) => {
   sourceFolder = null;

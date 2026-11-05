@@ -239,7 +239,6 @@ try {
   await save();
   assert.ok(w.testState.calls.some((c) => c.cmd === "import_source_bytes"));
   await click("#nav-prompts");
-  await click("#favorites");
   $("#search").value = "no match";
   $("#search").dispatchEvent(new w.Event("input"));
   const textPaste = new w.Event("paste", { bubbles: true, cancelable: true });
@@ -536,7 +535,15 @@ try {
   await click('#favorites');
   assert.equal($('#vocabulary-label').textContent, 'Categories');
   assert.equal($('#tags .active').dataset.tag, 'watercolor');
+  // Clicking Prompts while Favorites is on leaves Favorites, from Prompts and via Photos.
+  await click('#nav-prompts');
+  assert.ok($('#nav-prompts').classList.contains('active'));
+  assert.ok(!$('#favorites').classList.contains('active'));
   await click('#favorites');
+  await click('#nav-sources');
+  await click('#nav-prompts');
+  assert.ok($('#nav-prompts').classList.contains('active'));
+  assert.ok(!$('#favorites').classList.contains('active'));
   await click('#manage-tags');
   assert.match($('#modal').textContent, /Manage categories/);
   input('newTag', 'temporary category'); await save();
