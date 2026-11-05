@@ -35,8 +35,6 @@ main.addEventListener("scroll", () => {
   scrollTimer = setTimeout(() => main.classList.remove("is-scrolling"), 700);
 }, { passive: true });
 let dragging = false;
-let showAllSourcesFor = null;
-let suggestionsExpandedFor = null;
 let sourceFolder = null; // null = folder grid; empty string = Unfiled
 let sourceMode = false, sourceAnchor = null, selectedSources = new Set(), visibleSources = [];
 const folders = () => library?.folders || [];
@@ -192,9 +190,8 @@ function warnings() {
     ? `<details class="warning"><summary>${library.warnings.length} library warning${library.warnings.length === 1 ? "" : "s"} — show files</summary><ul>${library.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></details>`
     : "";
 }
-function sourceCard(s, mini = false) {
-  const card = `<button class="card source-card ${s.id === selectedSource || (!mini && selectedSources.has(s.id)) ? "selected" : ""}" data-action="source" data-id="${s.id}" aria-label="Preview ${esc(sourceName(s))}">${mediaPoster(s, asset, esc, sourceName(s))}<div class="card-body">${mini ? esc(sourceName(s)) : `<h3>${esc(sourceName(s))}</h3>${filter || query.trim() ? `<small class="folder-label">${esc(folderLabel(folderOf(s)))}</small>` : ""}<div class="badges">${badges(s.tags)}</div>`}</div></button>`;
-  return mini ? `<div class="source-mini">${card}</div>` : card;
+function sourceCard(s) {
+  return `<button class="card source-card ${s.id === selectedSource || selectedSources.has(s.id) ? "selected" : ""}" data-action="source" data-id="${s.id}" aria-label="Preview ${esc(sourceName(s))}">${mediaPoster(s, asset, esc, sourceName(s))}<div class="card-body"><h3>${esc(sourceName(s))}</h3>${filter || query.trim() ? `<small class="folder-label">${esc(folderLabel(folderOf(s)))}</small>` : ""}<div class="badges">${badges(s.tags)}</div></div></button>`;
 }
 function renderSidebar() {
   $("#prompt-count").textContent = library.prompts.length;
@@ -219,7 +216,7 @@ function renderSidebar() {
     (tags.length > 6 ? `<button id="more-tags" aria-expanded="${tagsExpanded}">${tagsExpanded ? "Show less" : `${tags.length - shown.length} more`}</button>` : "");
   $("#more-tags")?.addEventListener("click", () => {
     tagsExpanded = !tagsExpanded;
-    try { localStorage.setItem("gallery-tags-expanded", String(tagsExpanded)); } catch {}
+    try { localStorage.setItem("gallery-tags-collapsed", String(!tagsExpanded)); } catch {}
     renderSidebar();
   });
 }
@@ -240,8 +237,8 @@ function render() {
   }
   header.remove();
 }
-let tagsExpanded = false;
-try { tagsExpanded = localStorage.getItem("gallery-tags-expanded") === "true"; } catch {}
+let tagsExpanded = true;
+try { tagsExpanded = localStorage.getItem("gallery-tags-collapsed") !== "true"; } catch {}
 function tagColor(name) {
   let hash = 0;
   for (const char of name) hash = (Math.imul(hash, 31) + char.codePointAt(0)) | 0;
@@ -257,8 +254,6 @@ function renderView() {
     return;
   }
   resultSelection.reset();
-  showAllSourcesFor = null;
-  suggestionsExpandedFor = null;
   const isPrompts = view === "prompts";
   const items = (isPrompts ? library.prompts : library.sources).filter((item) => {
     const tags = isPrompts ? [...item.tags, ...item.needs] : item.tags;
@@ -277,29 +272,8 @@ function renderView() {
 function renderPrompt() {
   const p = prompt();
   resultSelection.begin(p.id, p.results);
-  const matches = library.sources.filter((s) => s.tags.some((t) => p.needs.includes(t)));
-  const suggestions = showAllSourcesFor === p.id ? library.sources : matches;
-  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.needs.length ? p.needs : ["text-only"])}${badges(p.tags)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<pre class="prompt-text">${esc(p.text)}</pre>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}<section><div class="section-header"><h2>Suggested photos</h2><small>${suggestions.length} ${showAllSourcesFor === p.id ? "available" : "matching"} ${suggestions.length === 1 ? "photo" : "photos"}</small></div>${p.needs.length ? (suggestions.length ? `<div id="suggested-photos" class="strip">${suggestions.map((s) => sourceCard(s, true)).join("")}</div>${button("toggle-suggestions", `Show all ${suggestions.length}`, "link-button", 'id="toggle-suggestions" aria-controls="suggested-photos" aria-expanded="false" hidden')}<small>Click to preview · Drag to ChatGPT · Copy image with ⌘C</small>` : `<p class="muted">No matching photos yet. Add a source photo with one of this prompt’s needs tags.</p>${library.sources.length ? button("show-all-sources", "Show all photos", "link-button") : ""}`) : '<p class="muted">This is a text-only prompt. No source photo needed.</p>'}</section><section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
-  updateSuggestions();
+  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.needs.length ? p.needs : ["text-only"])}${badges(p.tags)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<pre class="prompt-text">${esc(p.text)}</pre>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}<section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
 }
-function updateSuggestions() {
-  const strip = $("#suggested-photos");
-  if (!strip) return;
-  const width = strip.clientWidth || main.clientWidth || Math.max(110, window.innerWidth - 232);
-  const columns = Math.max(1, Math.floor((width + 12) / 122));
-  const limit = columns * 2;
-  const expanded = suggestionsExpandedFor === promptId;
-  [...strip.children].forEach((card, i) => {
-    card.hidden = !expanded && i >= limit;
-    if (!card.hidden) $("img", card)?.setAttribute("loading", "eager");
-  });
-  const toggle = $("#toggle-suggestions");
-  toggle.hidden = strip.children.length <= limit;
-  toggle.textContent = expanded ? "Show less" : `Show all ${strip.children.length}`;
-  toggle.setAttribute("aria-expanded", String(expanded));
-}
-window.addEventListener("resize", updateSuggestions);
-if (window.ResizeObserver) new ResizeObserver(updateSuggestions).observe(main);
 
 let pendingLibraryRefresh = false;
 let refreshInFlight = null;
@@ -361,7 +335,7 @@ function editPrompt(existing = null, text = "") {
   const p = existing;
   showModal(
     p ? "Edit prompt" : "New prompt",
-    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 4, full: true })}<div class="full"><label class="field">Photos it needs<small>Show photos tagged with any of these. Leave empty for a text-only prompt.</small></label>${tagTokens("needs", p?.needs, "Needs")}</div>${tagTokens("tags", p?.tags, "Style tags", "Describe the look or style of this prompt.")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
+    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 4, full: true })}<div class="full"><label class="field">Photos it needs<small>Photos with these tags are listed first when you link results. Leave empty for a text-only prompt.</small></label>${tagTokens("needs", p?.needs, "Needs")}</div>${tagTokens("tags", p?.tags, "Style tags", "Describe the look or style of this prompt.")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
     async (form) => {
       const values = new FormData(form),
         meta = {
@@ -728,14 +702,6 @@ const actions = {
     renderPrompt();
   },
   "set-result-sources": () => setResultSources(),
-  "toggle-suggestions": () => {
-    suggestionsExpandedFor = suggestionsExpandedFor === promptId ? null : promptId;
-    updateSuggestions();
-  },
-  "show-all-sources": () => {
-    showAllSourcesFor = promptId;
-    renderPrompt();
-  },
   "prev-result": () => {
     lightIndex = Math.max(0, lightIndex - 1);
     renderLightbox();

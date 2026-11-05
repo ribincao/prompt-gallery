@@ -25,10 +25,10 @@ Prompt Gallery keeps all three things together and linked:
 - **Results**: every image, video or audio file a prompt produced, with the source photo it used and a link back
   to the ChatGPT conversation.
 
-Open a prompt and the matching photos are right there. Copy the prompt, drag a photo
-into ChatGPT, and paste the result back in.
+Open a prompt, copy it, drag a photo from **Photos** into ChatGPT, and paste the result back
+in.
 
-![Prompt detail with copy button and suggested photos](docs/screenshots/prompt-detail.png)
+![Prompt detail with copy button](docs/screenshots/prompt-detail.png)
 
 ### Copy a photo, paste it into ChatGPT
 
@@ -57,9 +57,9 @@ Drag the thumbnail straight into the chat instead.
 - **Prompt grid with stacked results.** Each card shows a prompt's newest results as a little
   pile of photos with a count.
 - **One-click Copy prompt.**
-- **Suggested photos.** A prompt says what it needs (`single`, `couple`, `group`, `pet`,
-  `landscape`, `character-sheet`, `object`, or your own tags); the app shows photos tagged with
-  any of them.
+- **Needs.** A prompt can say what kind of photo it needs (`single`, `couple`, `group`, `pet`,
+  `landscape`, `character-sheet`, `object`, or your own tags); photos with those tags are listed
+  first when you link results to their source photos.
 - **Copy and paste a photo into ChatGPT** with one click (or ⌘C), or drag it straight into the
   chat. No digging for the original file; you always send the original, and nothing is exported.
 - **Add results fast**: paste a copied image with ⌘V, drop files onto a prompt card, or pick
@@ -171,8 +171,9 @@ make clean                   # remove build output
 3. **Create a prompt** with **+ New** (⌘N). Paste the text, give it a title, and choose
    which kinds of photo it needs. Needs and style tags use separate token fields. Pasting a long block of text into an empty prompt grid starts
    a new prompt for you.
-4. **Try it.** Open the prompt, click **Copy prompt**, and send one of the suggested photos to
-   ChatGPT: drag it into the chat, or select it, press ⌘C and paste there.
+4. **Try it.** Open the prompt, click **Copy prompt**, then find a photo in **Photos** (folders,
+   tags or search) and send it to ChatGPT: drag it into the chat, or select it, press ⌘C and
+   paste there.
 5. **Save the results.** Copy the generated image in ChatGPT and press ⌘V in the prompt, or drop
    the files onto the prompt card. Click the photos you used and keep the chat link.
 6. **Manage tags.** Click **Edit** beside **Tags** to open **Manage tags**. Add a
@@ -278,5 +279,5 @@ a tinted music-note tile. Open it for playback controls; **Copy audio** copies t
 file URL. Audio paste is not supported. Duration is best-effort via Spotlight.
 
 The integrated title bar holds search and view actions. Sidebar tags are ordered by usage,
-with six shown initially and an expandable remainder; **Edit** opens tag management.
+with all tags shown by default and **Show less** to collapse to the top six; **Edit** opens tag management.
 Square previews, one-line names and muted tags keep the grid compact in light and dark mode.

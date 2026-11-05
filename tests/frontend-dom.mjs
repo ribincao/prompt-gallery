@@ -73,12 +73,13 @@ try {
   const originalTags = [...w.testState.lib.tags];
   w.testState.lib.tags.push(...Array.from({length: 8}, (_, i) => `extra-${i}`));
   await click("#reload");
+  assert.equal(d.querySelectorAll("#tags .tag-dot").length, originalTags.length + 8, "all tags shown by default");
+  assert.equal($("#more-tags").getAttribute("aria-expanded"), "true");
+  await click("#more-tags");
+  assert.equal(w.localStorage.getItem("gallery-tags-collapsed"), "true");
   assert.equal(d.querySelectorAll("#tags .tag-dot").length, 6);
-  assert.equal($("#more-tags").getAttribute("aria-expanded"), "false");
   await click("#more-tags");
-  assert.equal(w.localStorage.getItem("gallery-tags-expanded"), "true");
-  assert.equal(d.querySelectorAll("#tags .tag-dot").length, originalTags.length + 8);
-  await click("#more-tags");
+  assert.equal(w.localStorage.getItem("gallery-tags-collapsed"), "false");
   w.testState.lib.tags = originalTags;
   await click("#reload");
   await click("#nav-sources");
@@ -126,15 +127,14 @@ try {
   await addTag("needs", "single");
   await save();
   assert.equal($("#toolbar h1").textContent, "Portrait <test>");
-  assert.equal(d.querySelectorAll(".source-mini").length, 1);
-  assert.match($(".source-mini").textContent, /Kujira <bucket>/);
+  assert.equal($("#suggested-photos"), null);
   assert.equal(d.querySelectorAll("test").length, 0);
   await act("copy-prompt");
   assert.equal(w.testState.copied, text);
-  await act("source");
-  await act("close-modal");
   await act("pick-results");
   assert.equal($("[name=chatUrl]").value, "https://chatgpt.com/c/test");
+  assert.equal($("[name=sources]").checked, false, "nothing preselected without an opened photo");
+  $("[name=sources]").click();
   assert.equal($("[name=sources]").checked, true);
   assert.equal($(".source-option-name").textContent, "Kujira <bucket>");
   await save();
@@ -154,6 +154,8 @@ try {
   await act("close-lightbox");
   assert.match($(".result-card").getAttribute("aria-label"), /Watercolor <cat>/);
   assert.match($(".result-card").textContent, /Watercolor <cat>/);
+  await click("#nav-sources");
+  await act("open-folder");
   await act("source");
   assert.match($(".source-uses").textContent, /Watercolor <cat>/);
   input("name", "   ");
@@ -163,7 +165,7 @@ try {
   assert.match($("#dialog-form").textContent, /Original file: Original.png/);
   input("name", "Kujira <bucket>");
   await save();
-  await act("back");
+  await click("#nav-prompts");
   $("#search").value = "watercolor";
   $("#search").dispatchEvent(new w.Event("input"));
   assert.equal(d.querySelectorAll(".prompt-card").length, 1);
@@ -179,8 +181,6 @@ try {
   await act("open-url");
   assert.equal(w.testState.calls.at(-1).cmd, "open_chat");
   await act("close-lightbox");
-  await act("source");
-  await act("close-modal");
   w.testState.listeners["tauri://drag-drop"]({ payload: { paths: ["/tmp/second.jpg"] } });
   await wait(() => $("#modal").open, "drop");
   await save();
@@ -209,7 +209,8 @@ try {
   assert.equal(w.testState.lib.sources.length, 0);
   await click("#nav-prompts");
   await act("prompt");
-  await act("result");
+  [...d.querySelectorAll('[data-action="result"]')].find(el => w.testState.lib.prompts[0].results.find(r => r.id === el.dataset.id)?.sourcePhotos.length)?.click();
+  await wait(() => !$("#lightbox").hidden || $("#lightbox").open, "linked result");
   assert.match($("#lightbox-content").textContent, /Source photo missing/);
   await act("close-lightbox");
   await click("#nav-sources");
@@ -373,10 +374,9 @@ try {
   $("#search").dispatchEvent(new w.Event("input"));
   await click("#reload");
   await click(`.prompt-card[data-prompt-id="${first.id}"] [data-action=prompt]`);
-  assert.equal(d.querySelectorAll(".source-mini").length, 2);
-  assert.equal(d.querySelectorAll(".source-card[title],.source-mini [data-action=reveal]").length, 0);
+  assert.equal($("#suggested-photos"), null);
   await act("edit-prompt");
-  assert.match($("#dialog-form").textContent, /Show photos tagged with any of these/);
+  assert.match($("#dialog-form").textContent, /listed first when you link results/);
   await act("close-modal");
   await act("pick-results");
   assert.deepEqual(
@@ -445,10 +445,7 @@ try {
 
   first.needs = ["landscape"];
   await click("#reload");
-  assert.match($("#main").textContent, /No matching photos yet/);
-  await act("show-all-sources");
-  assert.equal(d.querySelectorAll(".source-mini").length, 3);
-  assert.equal(d.querySelectorAll(".source-mini [data-action=reveal]").length, 0);
+  assert.doesNotMatch($("#main").textContent, /Suggested photos|No matching photos yet/);
 
   // Live refresh preserves the detail view/scroll and avoids self-event redraws.
   const emitChange = () => w.testState.listeners["library-changed"]({ payload: w.testState.lib.root });
@@ -613,19 +610,7 @@ try {
   assert.equal(retainedImage.getAttribute("loading"), "eager");
   assert.equal(gridCard("navigation-58").querySelector("img").getAttribute("loading"), "lazy");
   await click(`[data-action="prompt"][data-id="${navigationPrompt.id}"]`);
-  const strip = $("#suggested-photos"), visibleSuggestions = () => [...strip.children].filter(c => !c.hidden);
-  assert.equal(visibleSuggestions().length, 14, "seven columns, at most two rows at 1100px");
-  assert.equal($("#toggle-suggestions").textContent, "Show all 76");
-  const retainedResult = $(".result-card"), retainedSuggestion = strip.firstElementChild;
-  await act("toggle-suggestions");
-  assert.equal(visibleSuggestions().length, 76);
-  assert.equal($("#toggle-suggestions").getAttribute("aria-expanded"), "true");
-  assert.equal($(".result-card"), retainedResult, "toggle must not rebuild Results");
-  assert.equal(strip.firstElementChild, retainedSuggestion);
-  await act("toggle-suggestions");
-  Object.defineProperty(strip, "clientWidth", {value: 354, configurable: true});
-  w.dispatchEvent(new w.Event("resize"));
-  assert.equal(visibleSuggestions().length, 6, "two rows adapt to a three-column strip");
+  assert.equal($("#suggested-photos"), null, "prompt detail has no suggested photos section");
   await act("back");
   assert.equal(gridCard(navigationPrompt.id), cachedCard);
   assert.equal(cachedCard.querySelector("img"), retainedImage);
@@ -675,7 +660,7 @@ try {
   d.head.append(style);
   assert.equal(w.getComputedStyle(d.documentElement).colorScheme, "light");
   assert.equal(w.getComputedStyle($("#toolbar button" )).appearance, "none");
-  console.log("PASS: retained prompt/image nodes, eager first screen, changed-record refresh, two-row responsive suggestions with in-place toggle, folder content and explicit light control scheme");
+  console.log("PASS: retained prompt/image nodes, eager first screen, changed-record refresh, no suggested photos section, folder content and explicit light control scheme");
   console.log("PASS: toolbar search, Photos label, tag expansion persistence, audio tiles and source/result players");
   console.log("PASS: folder grid, breadcrumb, import membership, Move to, cross-folder filters, rename/delete, extension-free names, source/result video cards and playback controls");
 

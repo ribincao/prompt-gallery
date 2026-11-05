@@ -151,10 +151,8 @@ Search matches title, prompt text, tags and notes. The data model is unchanged.
 **Prompt detail** (opens when a card is clicked):
 - Title and the full prompt text, with a big **Copy prompt** button (shows "Copied").
 - Edit button: edit title, text, needs, tags, source URL, notes.
-- **Suggested photos**: a strip of photos whose tags intersect `needs`,
-  newest first. Needs match **any** selected tag. If none match and the library has sources,
-  offer **Show all photos** in place. Photos can be dragged out; **Reveal in Finder**
-  is available in the right-click menu, without a repeated button or hover tooltip.
+- No suggested-photos strip (removed once folders and tags made Photos easy to browse).
+  `needs` only orders the source picker: photos whose tags intersect `needs` come first.
 - **Results**: a grid of this prompt's results. Click opens a lightbox (arrow keys to step
   through, Esc to close) showing the image, its source photo(s), date, note and an
   "Open chat" link that opens `chatUrl` in the default browser. Linked photos appear
@@ -189,8 +187,7 @@ suggested default and a short line about why the data lives outside the app.
 ## Using a source photo (getting it into ChatGPT)
 
 Photos are always sent from the library itself; the app never exports copies to another
-folder. On any source photo thumbnail (the Photos grid and the suggested strip on a
-prompt):
+folder. On any source photo thumbnail (the Photos grid):
 
 | Action | Does |
 |---|---|
