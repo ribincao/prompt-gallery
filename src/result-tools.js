@@ -12,7 +12,7 @@ export function sourcePhotoPicker({ sources, chosen = [], asset, esc }) {
   const options = sources
     .map(
       (s) =>
-        `<label class="source-option"><input type="checkbox" name="sources" value="${s.id}" ${chosen.includes(s.id) ? "checked" : ""}><span class="source-option-photo">${s.thumbnail ? `<img src="${asset(s.thumbnail)}" alt="" loading="lazy" decoding="async">` : s.kind === "audio" ? audioPlaceholder(s, esc, sourceName(s)) : '<span class="muted">No preview</span>'}${mediaBadge(s)}</span><span class="source-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg></span><span class="source-option-name">${esc(sourceName(s))}</span></label>`,
+        `<label class="source-option" data-name="${esc([sourceName(s), s.note || "", ...(s.tags || [])].join(" ").toLowerCase())}" data-tags="${esc(JSON.stringify(s.tags || []))}"><input type="checkbox" name="sources" value="${s.id}" ${chosen.includes(s.id) ? "checked" : ""}><span class="source-option-photo">${s.thumbnail ? `<img src="${asset(s.thumbnail)}" alt="" loading="lazy" decoding="async">` : s.kind === "audio" ? audioPlaceholder(s, esc, sourceName(s)) : '<span class="muted">No preview</span>'}${mediaBadge(s)}</span><span class="source-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg></span><span class="source-option-name">${esc(sourceName(s))}</span></label>`,
     )
     .join("");
   const missing = chosen
@@ -22,7 +22,65 @@ export function sourcePhotoPicker({ sources, chosen = [], asset, esc }) {
         `<label class="check missing-source-option"><input type="checkbox" name="sources" value="${esc(id)}" checked>Source photo missing</label>`,
     )
     .join("");
-  return `<fieldset class="source-picker"><legend>Photos used</legend><p class="muted">Click photos to toggle.</p><div class="source-picker-grid">${options}</div>${!sources.length ? "<small>No photos in this library.</small>" : ""}${missing}</fieldset>`;
+  const usage = new Map();
+  for (const s of sources) for (const t of new Set(s.tags || [])) usage.set(t, (usage.get(t) || 0) + 1);
+  const tags = [...usage.keys()].sort((a, b) => usage.get(b) - usage.get(a) || a.localeCompare(b));
+  const chip = (tag, label, active) =>
+    `<button type="button" class="chip ${active ? "active" : ""}" data-picker-tag="${esc(tag)}" aria-pressed="${active}">${label}</button>`;
+  const filters = sources.length > 1
+    ? `<div class="picker-filters"><input type="search" class="picker-search" placeholder="Search photos" autocomplete="off" aria-label="Search photos">${tags.length ? `<div class="chips">${chip("", "All", true)}${tags.map((t) => chip(t, `${esc(t)} <small>${usage.get(t)}</small>`, false)).join("")}</div>` : ""}</div>`
+    : "";
+  return `<fieldset class="source-picker"><legend>Photos used</legend><p class="muted">Click photos to toggle. <span class="picker-count">${chosen.length ? `${chosen.length} selected` : ""}</span></p>${filters}<div class="source-picker-grid">${options}</div><p class="muted picker-empty" hidden>No photos match these filters.</p>${!sources.length ? "<small>No photos in this library.</small>" : ""}${missing}</fieldset>`;
+}
+
+// Filtering only hides options, so photos chosen earlier stay checked and are still saved.
+function applyPickerFilter(picker) {
+  const active = [...picker.querySelectorAll("[data-picker-tag].active")].map((el) => el.dataset.pickerTag).filter(Boolean);
+  const q = (picker.querySelector(".picker-search")?.value || "").trim().toLowerCase();
+  let shown = 0;
+  for (const option of picker.querySelectorAll(".source-option")) {
+    const tags = JSON.parse(option.dataset.tags || "[]");
+    const match = active.every((t) => tags.includes(t)) && (!q || option.dataset.name.includes(q));
+    option.hidden = !match;
+    if (match) shown++;
+  }
+  const empty = picker.querySelector(".picker-empty");
+  if (empty) empty.hidden = shown > 0 || !picker.querySelector(".source-option");
+}
+function updatePickerCount(picker) {
+  const n = picker.querySelectorAll('input[name="sources"]:checked').length;
+  const count = picker.querySelector(".picker-count");
+  if (count) count.textContent = n ? `${n} selected` : "";
+}
+if (typeof document !== "undefined") {
+  document.addEventListener("click", (e) => {
+    const chip = e.target.closest?.("[data-picker-tag]");
+    const picker = chip?.closest(".source-picker");
+    if (!picker) return;
+    e.preventDefault();
+    const tag = chip.dataset.pickerTag;
+    const all = picker.querySelector('[data-picker-tag=""]');
+    // Same as the sidebar: click adds a tag, click again removes it, All clears.
+    if (!tag) for (const el of picker.querySelectorAll("[data-picker-tag]")) el.classList.remove("active");
+    else chip.classList.toggle("active");
+    const any = !!picker.querySelector('[data-picker-tag]:not([data-picker-tag=""]).active');
+    all?.classList.toggle("active", !any);
+    for (const el of picker.querySelectorAll("[data-picker-tag]")) el.setAttribute("aria-pressed", String(el.classList.contains("active")));
+    applyPickerFilter(picker);
+  });
+  document.addEventListener("input", (e) => {
+    if (!e.target.classList?.contains("picker-search")) return;
+    const picker = e.target.closest(".source-picker");
+    if (picker) applyPickerFilter(picker);
+  });
+  document.addEventListener("change", (e) => {
+    const picker = e.target.name === "sources" && e.target.closest?.(".source-picker");
+    if (picker) updatePickerCount(picker);
+  });
+  // Enter in the photo search must not submit the dialog.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && e.target.classList?.contains("picker-search")) e.preventDefault();
+  });
 }
 
 export function createResultSelection({ asset, esc, button, date }) {

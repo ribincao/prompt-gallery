@@ -50,7 +50,8 @@ Drag the thumbnail straight into the chat instead.
   it by tags (they combine) or by name, then drag a photo into ChatGPT or click it and press ⌘C.
   The photo you picked is pre-linked when you add the result.
 - **Add results fast**: paste a copied image with ⌘V, drop files, or pick them. A ChatGPT link on
-  your clipboard is filled in automatically, so **Open chat** takes you back later.
+  your clipboard is filled in automatically, so **Open chat** takes you back later. The
+  **Photos used** picker has its own tag chips and search, so you can find the photo you used fast.
 
 **Photos**
 - **Images, videos and audio**: JPG, PNG, WEBP, HEIC, GIF, MP4, MOV, M4V, MP3, M4A, AAC, WAV,

@@ -825,6 +825,11 @@ a {
   font-size: 11px;
   margin: 5px 0 12px;
 }
+.picker-filters { display: flex; flex-direction: column; gap: 6px; margin: 0 0 8px; }
+.picker-search { max-width: 240px; }
+.picker-filters .chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 56px; overflow: auto; }
+.picker-filters .chip small { color: var(--muted); margin-left: 3px; }
+.source-option[hidden] { display: none; }
 .source-picker-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(95px, 1fr));
