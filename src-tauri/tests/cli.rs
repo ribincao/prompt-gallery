@@ -88,7 +88,7 @@ fn add_matches_deduplicates_and_preserves_metadata() {
             duplicate.to_str().unwrap(),
             "--source",
             sid,
-            "--tags",
+            "--categories",
             "second",
             "--needs",
             "other",
@@ -106,19 +106,24 @@ fn add_matches_deduplicates_and_preserves_metadata() {
     assert_eq!(list.as_array().unwrap().len(), 1);
     assert_eq!(list[0]["resultCount"], 2);
     assert_eq!(list[0]["title"], "Original");
+    assert_eq!(
+        list[0]["categories"],
+        serde_json::json!(["style", "second"])
+    );
+    assert_eq!(list[0]["tags"], list[0]["categories"]);
     let lib = prompt_gallery_lib::library::load_library(library.path()).unwrap();
     assert_eq!(lib.prompts[0].text, "  hello\r\nworld  ");
     assert_eq!(lib.prompts[0].meta.fields.source_url, "");
     assert_eq!(lib.sources.len(), 1);
     assert_eq!(fs::read(image).unwrap(), png);
-    for tag in ["reference", "style", "custom", "second", "other"] {
+    for tag in ["reference", "custom", "other"] {
         assert!(lib.tags.contains(&tag.into()));
     }
     assert!(lib.prompts[0]
         .results
         .iter()
         .all(|r| r.meta.fields.source_photos == [sid]));
-    let vocabulary = ok(&config, &["--library", root, "tags", "--json"]);
+    let vocabulary = ok(&config, &["--library", root, "categories", "--json"]);
     assert!(vocabulary
         .as_array()
         .unwrap()
@@ -234,7 +239,7 @@ fn concurrent_processes_merge_tags_and_prompt_file_is_exact() {
         let _: Value = serde_json::from_slice(&out.stdout).unwrap();
     }
     let lib = prompt_gallery_lib::library::load_library(dir.path()).unwrap();
-    assert!(lib.tags.contains(&"alpha".into()) && lib.tags.contains(&"beta".into()));
+    assert!(lib.categories.contains(&"alpha".into()) && lib.categories.contains(&"beta".into()));
     assert_eq!(
         lib.prompts.iter().map(|p| p.results.len()).sum::<usize>(),
         2
@@ -278,7 +283,15 @@ fn cli_tags_follow_removal_rename_and_explicit_add() {
         ],
     );
     let tags = ok(&config, &["tags", "--library", root.to_str().unwrap()]);
-    assert!(tags.as_array().unwrap().contains(&serde_json::json!("x")));
+    assert!(!tags.as_array().unwrap().contains(&serde_json::json!("x")));
+    let categories = ok(
+        &config,
+        &["categories", "--library", root.to_str().unwrap(), "--json"],
+    );
+    assert!(categories
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("x")));
     assert!(!tags
         .as_array()
         .unwrap()

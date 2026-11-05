@@ -305,7 +305,7 @@ fn tag_fixture(root: &Path) -> (Source, String) {
         PromptInput {
             title: "Tagged".into(),
             needs: vec!["old".into(), "target".into()],
-            tags: vec!["old".into(), "target".into(), "orphan".into()],
+            categories: vec!["old".into(), "target".into(), "orphan".into()],
             ..Default::default()
         },
         "exact text".into(),
@@ -332,7 +332,10 @@ fn remove_tag_strips_all_fields_and_stays_removed_on_load() {
     assert!(!lib.tags.contains(&"old".into()));
     assert_eq!(lib.sources[0].meta.tags, vec!["target"]);
     assert_eq!(lib.prompts[0].meta.fields.needs, vec!["target"]);
-    assert_eq!(lib.prompts[0].meta.fields.tags, vec!["target", "orphan"]);
+    assert_eq!(
+        lib.prompts[0].meta.fields.categories,
+        vec!["old", "target", "orphan"]
+    );
     assert_eq!(lib.prompts[0].results[0].meta.id, result_id);
     assert!(root.join(format!("sources/{}", s.file)).exists());
     assert_eq!(
@@ -354,8 +357,8 @@ fn rename_tag_replaces_everywhere_and_rejects_empty_names() {
     assert_eq!(lib.sources[0].meta.tags, vec!["new", "target"]);
     assert_eq!(lib.prompts[0].meta.fields.needs, vec!["new", "target"]);
     assert_eq!(
-        lib.prompts[0].meta.fields.tags,
-        vec!["new", "target", "orphan"]
+        lib.prompts[0].meta.fields.categories,
+        vec!["old", "target", "orphan"]
     );
     assert!(rename_tag(&root, "new", "  ").is_err());
     assert!(rename_tag(&root, "", "new").is_err());
@@ -370,7 +373,10 @@ fn merge_tag_deduplicates_and_preserves_order() {
     assert_eq!(lib.tags.iter().filter(|t| *t == "target").count(), 1);
     assert_eq!(lib.sources[0].meta.tags, vec!["target"]);
     assert_eq!(lib.prompts[0].meta.fields.needs, vec!["target"]);
-    assert_eq!(lib.prompts[0].meta.fields.tags, vec!["target", "orphan"]);
+    assert_eq!(
+        lib.prompts[0].meta.fields.categories,
+        vec!["old", "target", "orphan"]
+    );
 }
 #[test]
 fn tag_counts_include_orphans_and_count_prompt_once_without_loading_media() {
@@ -382,7 +388,12 @@ fn tag_counts_include_orphans_and_count_prompt_once_without_loading_media() {
     let old = counts.iter().find(|r| r.tag == "old").unwrap();
     assert_eq!((old.sources, old.prompts), (1, 1));
     assert_eq!(
-        counts.iter().find(|r| r.tag == "orphan").unwrap().prompts,
+        category_usage(&root)
+            .unwrap()
+            .iter()
+            .find(|r| r.tag == "orphan")
+            .unwrap()
+            .prompts,
         1
     );
     assert_eq!(
@@ -390,8 +401,12 @@ fn tag_counts_include_orphans_and_count_prompt_once_without_loading_media() {
         0
     );
     assert!(!marker(&root).unwrap().tags.contains(&"orphan".into()));
-    rename_tag(&root, "orphan", "rescued").unwrap();
-    assert!(marker(&root).unwrap().tags.contains(&"rescued".into()));
+    rename_category(&root, "orphan", "rescued").unwrap();
+    assert!(marker(&root)
+        .unwrap()
+        .categories
+        .unwrap()
+        .contains(&"rescued".into()));
 }
 #[test]
 fn tag_operations_wait_for_lock() {
@@ -469,7 +484,7 @@ fn prompt_update_does_not_restore_missing_existing_needs_to_vocabulary() {
     marker.tags.retain(|t| t != "single");
     write_json(&root.join("library.json"), &marker).unwrap();
     let mut input = meta();
-    input.tags.push("x".into());
+    input.categories.push("x".into());
     update_prompt(&root, &p, input, "text".into()).unwrap();
     assert!(!load_library(&root).unwrap().tags.contains(&"single".into()));
 }
@@ -789,4 +804,177 @@ fn audio_formats_import_as_sources_and_linked_results_without_changing_images() 
     )
     .unwrap();
     assert!(json.get("kind").is_none());
+}
+
+#[test]
+fn legacy_categories_migrate_under_lock_without_rewriting_prompts() {
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    let (_, p) = tag_fixture(&root);
+    let path = root.join(format!("prompts/{p}/meta.json"));
+    let mut raw: serde_json::Value = read(&path).unwrap();
+    raw["tags"] = raw.as_object_mut().unwrap().remove("categories").unwrap();
+    write_json(&path, &raw).unwrap();
+    let original = fs::read(&path).unwrap();
+    let marker_path = root.join("library.json");
+    let mut old: serde_json::Value = read(&marker_path).unwrap();
+    old.as_object_mut().unwrap().remove("categories");
+    old["tags"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!("orphan"));
+    old["tags"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|t| t != "object");
+    write_json(&marker_path, &old).unwrap();
+    let lock = TagLock::acquire(&root).unwrap();
+    let loaded = load_library(&root).unwrap();
+    assert_eq!(loaded.categories, vec!["old", "target", "orphan"]);
+    assert!(!loaded.tags.contains(&"orphan".into()));
+    assert!(read::<serde_json::Value>(&marker_path)
+        .unwrap()
+        .get("categories")
+        .is_none());
+    assert_eq!(fs::read(&path).unwrap(), original);
+    drop(lock);
+    load_library(&root).unwrap();
+    let migrated = fs::read(&marker_path).unwrap();
+    load_library(&root).unwrap();
+    assert_eq!(fs::read(&marker_path).unwrap(), migrated);
+    assert_eq!(fs::read(&path).unwrap(), original);
+    let tags = marker(&root).unwrap().tags;
+    assert!(!tags.contains(&"object".into()), "removed builtins stay removed");
+    assert!(BUILTIN_TAGS
+        .iter()
+        .filter(|t| **t != "object")
+        .all(|t| tags.contains(&t.to_string())));
+    // Explicit categories win when both keys are present, including empty categories.
+    raw["categories"] = serde_json::json!([]);
+    write_json(&path, &raw).unwrap();
+    let m: PromptMeta = read(&path).unwrap();
+    assert!(m.fields.categories.is_empty());
+    update_prompt(&root, &p, m.fields, "text".into()).unwrap();
+    let saved: serde_json::Value = read(&path).unwrap();
+    assert!(saved.get("tags").is_none());
+    assert_eq!(saved["categories"], serde_json::json!([]));
+}
+#[test]
+fn category_operations_are_independent_and_case_insensitive() {
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    let (_, p) = tag_fixture(&root);
+    let path = root.join(format!("prompts/{p}/meta.json"));
+    let mut raw: serde_json::Value = read(&path).unwrap();
+    raw["tags"] = raw.as_object_mut().unwrap().remove("categories").unwrap();
+    write_json(&path, &raw).unwrap();
+    set_categories(
+        &root,
+        vec![" OLD ".into(), "fresh".into(), "FRESH".into(), " ".into()],
+    )
+    .unwrap();
+    assert_eq!(
+        marker(&root).unwrap().categories.unwrap(),
+        vec!["old", "target", "orphan", "fresh"]
+    );
+    let change = rename_category(&root, "OLD", "TARGET").unwrap();
+    assert_eq!((change.sources, change.prompts), (0, 1));
+    let lib = load_library(&root).unwrap();
+    assert_eq!(
+        lib.prompts[0].meta.fields.categories,
+        vec!["target", "orphan"]
+    );
+    assert_eq!(lib.prompts[0].meta.fields.needs, vec!["old", "target"]);
+    assert_eq!(lib.sources[0].meta.tags, vec!["old", "target"]);
+    assert!(read::<serde_json::Value>(&path)
+        .unwrap()
+        .get("tags")
+        .is_none());
+    remove_category(&root, "target").unwrap();
+    let lib = load_library(&root).unwrap();
+    assert_eq!(lib.prompts[0].meta.fields.categories, vec!["orphan"]);
+    assert!(lib.tags.contains(&"target".into()));
+    assert!(rename_category(&root, "orphan", " ").is_err());
+}
+
+#[test]
+fn migration_read_only_fallback_and_next_vocabulary_write() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    tag_fixture(&root);
+    let path = root.join("library.json");
+    let mut raw: serde_json::Value = read(&path).unwrap();
+    raw.as_object_mut().unwrap().remove("categories");
+    write_json(&path, &raw).unwrap();
+    let before = fs::read(&path).unwrap();
+    let permissions = fs::metadata(&root).unwrap().permissions();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o555)).unwrap();
+    let loaded = load_library(&root);
+    let unchanged = fs::read(&path).unwrap() == before;
+    fs::set_permissions(&root, permissions).unwrap();
+    assert_eq!(loaded.unwrap().categories, vec!["old", "target", "orphan"]);
+    assert!(unchanged, "Read-only load must not persist migration");
+    set_tags(&root, vec!["added".into()]).unwrap();
+    let persisted: serde_json::Value = read(&path).unwrap();
+    assert_eq!(
+        persisted["categories"],
+        serde_json::json!(["old", "target", "orphan"])
+    );
+    assert!(marker(&root).unwrap().tags.contains(&"added".into()));
+}
+
+#[test]
+fn tag_operations_preserve_legacy_categories_and_prefer_explicit_key() {
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    let (_, p) = tag_fixture(&root);
+    let path = root.join(format!("prompts/{p}/meta.json"));
+    let mut raw: serde_json::Value = read(&path).unwrap();
+    raw["tags"] = raw.as_object_mut().unwrap().remove("categories").unwrap();
+    write_json(&path, &raw).unwrap();
+    rename_tag(&root, "old", "new").unwrap();
+    let saved: serde_json::Value = read(&path).unwrap();
+    assert!(saved.get("tags").is_none());
+    assert_eq!(
+        saved["categories"],
+        serde_json::json!(["old", "target", "orphan"])
+    );
+    assert_eq!(saved["needs"], serde_json::json!(["new", "target"]));
+    raw = saved;
+    raw["tags"] = serde_json::json!(["ignore-legacy"]);
+    write_json(&path, &raw).unwrap();
+    assert!(!category_usage(&root)
+        .unwrap()
+        .iter()
+        .any(|u| u.tag == "ignore-legacy"));
+    remove_category(&root, "orphan").unwrap();
+    let saved: serde_json::Value = read(&path).unwrap();
+    assert!(saved.get("tags").is_none());
+    assert_eq!(saved["categories"], serde_json::json!(["old", "target"]));
+    assert_eq!(saved["needs"], raw["needs"]);
+}
+#[test]
+fn copy_needs_to_categories_keeps_order_and_text() {
+    let d = tempdir().unwrap();
+    let root = open_library(d.path(), false).unwrap();
+    let (_, p) = tag_fixture(&root);
+    let path = root.join(format!("prompts/{p}/meta.json"));
+    let mut seeded: PromptMeta = read(&path).unwrap();
+    seeded.fields.needs = vec!["Sticker".into(), "single".into()];
+    write_json(&path, &seeded).unwrap();
+    let before: PromptMeta = read(&path).unwrap();
+    let text = fs::read(root.join(format!("prompts/{p}/prompt.md"))).unwrap();
+    assert!(copy_needs_to_categories(&root).unwrap() >= 1);
+    let after: PromptMeta = read(&path).unwrap();
+    assert_eq!(after.updated_at, before.updated_at);
+    assert!(after.fields.needs.iter().all(|n| after
+        .fields
+        .categories
+        .iter()
+        .any(|c| c.to_lowercase() == n.to_lowercase())));
+    assert_eq!(fs::read(root.join(format!("prompts/{p}/prompt.md"))).unwrap(), text);
+    let vocab = marker(&root).unwrap().categories.unwrap();
+    assert!(after.fields.categories.iter().all(|c| vocab.contains(c)));
+    assert_eq!(copy_needs_to_categories(&root).unwrap(), 0, "idempotent");
 }

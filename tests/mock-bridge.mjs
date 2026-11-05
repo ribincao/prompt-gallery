@@ -1,6 +1,6 @@
 // Test-only in-memory IPC bridge. Never loaded by the app.
 export function installMockBridge() {
-  const lib = { root: "/tmp/Prompt Library", folders: [], tags: ["single", "group", "pet"], sources: [], prompts: [], warnings: [] };
+  const lib = { root: "/tmp/Prompt Library", folders: [], categories: ["style-only"], tags: ["single", "group", "pet"], sources: [], prompts: [], warnings: [] };
   const calls = [];
   const listeners = {};
   let serial = 0;
@@ -70,6 +70,7 @@ export function installMockBridge() {
             return;
           case "create_prompt": {
             const pid = id();
+            lib.categories = [...new Set([...lib.categories, ...args.meta.categories])];
             lib.prompts.unshift({
               ...args.meta,
               id: pid,
@@ -105,21 +106,32 @@ export function installMockBridge() {
               args.meta,
             );
             return;
+          case "set_categories": lib.categories = [...new Set([...lib.categories, ...args.categories])]; return;
+          case "category_usage": return [...new Set([...lib.categories, ...lib.prompts.flatMap(p => p.categories)])].map(tag => ({tag, sources:0, prompts:lib.prompts.filter(p => p.categories.includes(tag)).length}));
+          case "remove_category":
+          case "rename_category": {
+            const from = args.tag ?? args.from;
+            const replace = values => [...new Set(values.flatMap(t => t === from ? (args.to ? [args.to] : []) : [t]))];
+            const prompts = lib.prompts.filter(p => p.categories.includes(from)).length;
+            lib.categories = replace(lib.categories);
+            lib.prompts.forEach(p => p.categories = replace(p.categories));
+            return {sources:0, prompts, warnings:[]};
+          }
           case "set_tags":
             lib.tags = [...new Set([...lib.tags, ...args.tags])];
             return;
           case "tag_usage":
-            return [...new Set([...lib.tags, ...lib.sources.flatMap(s => s.tags), ...lib.prompts.flatMap(p => [...p.needs, ...p.tags])])].sort().map(tag => ({tag, sources: lib.sources.filter(s => s.tags.includes(tag)).length, prompts: lib.prompts.filter(p => p.needs.includes(tag) || p.tags.includes(tag)).length}));
+            return [...new Set([...lib.tags, ...lib.sources.flatMap(s => s.tags), ...lib.prompts.flatMap(p => [...p.needs])])].sort().map(tag => ({tag, sources: lib.sources.filter(s => s.tags.includes(tag)).length, prompts: lib.prompts.filter(p => p.needs.includes(tag)).length}));
           case "remove_tag":
           case "rename_tag": {
             if (window.testState.tagError) throw new Error(window.testState.tagError);
             const from = args.tag ?? args.from;
             const replace = tags => [...new Set(tags.flatMap(t => t === from ? (args.to ? [args.to] : []) : [t]))];
             const sources = lib.sources.filter(s => s.tags.includes(from)).length;
-            const prompts = lib.prompts.filter(p => p.needs.includes(from) || p.tags.includes(from)).length;
+            const prompts = lib.prompts.filter(p => p.needs.includes(from)).length;
             lib.tags = replace(lib.tags);
             lib.sources.forEach(s => s.tags = replace(s.tags));
-            lib.prompts.forEach(p => { p.needs = replace(p.needs); p.tags = replace(p.tags); });
+            lib.prompts.forEach(p => { p.needs = replace(p.needs); });
             return {sources, prompts, warnings: []};
           }
           case "trash_item":

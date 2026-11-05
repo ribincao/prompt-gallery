@@ -23,8 +23,7 @@ Source photo ──used by──▶ Result ◀──produced by── Prompt
 - **Result**: an image a prompt generated, remembering which source photo(s) it used and
   the ChatGPT conversation it came from.
 
-Opening a prompt shows the photos whose tags match what the prompt needs, so the
-right photo is one click away.
+The result source picker lists photos whose tags match prompt needs first.
 
 ## Repo vs library
 
@@ -42,7 +41,7 @@ right photo is one click away.
 
 ```
 Prompt Library/
-  library.json                 { "app": "prompt-gallery", "version": 1, "tags": [...] }
+  library.json                 { "app": "prompt-gallery", "version": 1, "tags": [...], "categories": [...] }
   sources/
     <id>.<ext>                 the original photo, copied in unchanged
     <id>.json                  source metadata
@@ -80,7 +79,7 @@ Sortable by date, readable in Finder, collision-safe for one person.
 `prompts/<id>/meta.json`
 ```json
 { "id": "…", "title": "Pixar-style family portrait", "needs": ["group"],
-  "tags": ["3d", "cute"], "sourceUrl": "https://… (where I found it)",
+  "categories": ["3d", "cute"], "sourceUrl": "https://… (where I found it)",
   "notes": "", "favorite": false,
   "createdAt": "…", "updatedAt": "…" }
 ```
@@ -128,7 +127,7 @@ One window, native macOS title bar, follows system light/dark mode.
 **Sidebar**: two sections, **Prompts** and **Photos**; a search box; tag filter
 chips; a "Favorites" filter.
 
-**Prompts view**: a grid of prompt cards showing the title and `needs` tags. A card with
+**Prompts view**: a grid of prompt cards showing the title and categories. A card with
 no results keeps a text placeholder; one result shows a single flat thumbnail. With two
 or more results, show a small photo stack of the newest three results at most: newest on
 top, with up to two older thumbnails peeking out behind, slightly offset and rotated
@@ -233,10 +232,10 @@ crate is needed. Grids show thumbnails; the lightbox shows the original.
 
 The sidebar **Manage tags** button opens a compact list with an Add tag field, usage
 counts, Rename and Remove. Counts include tags found only in metadata; each prompt counts
-once even when both `needs` and `tags` contain the name. Counting does not require intact
+once when its `needs` contains the name. Counting does not require intact
 images, prompt text or results and does not populate the vocabulary.
 
-Remove strips the name from `library.json.tags`, source `tags`, and prompt `needs`/`tags`.
+Remove strips the name from `library.json.tags`, source `tags`, and prompt `needs`. Categories remain unchanged.
 Rename replaces it in all those fields; an existing destination merges with stable
 per-field deduplication. Empty names are rejected. Metadata fields and media stay intact.
 The dialog confirms removal inline and requires a second confirmation before merging.
@@ -250,13 +249,13 @@ reports earlier completed records; it does not roll them back. A directory-sync 
 can occur after the failed record's rename, so the error also explains that uncertainty.
 Unreadable or unsafe metadata is skipped with a warning, like the loader. Existing record
 writers are not globally serialized by this lock; do not run concurrent record edits/imports
-while managing tags. Loading never reconstructs the vocabulary from records. `set_tags`
+while managing tags. After the one-time migration, loading never reconstructs either vocabulary from records. `set_tags`
 remains additive, and CLI adds only explicitly supplied tags to it.
 
 Form dialogs keep Cancel and the primary submit action in a fixed header. Errors are
 visible below the title, outside the form's scroll area. Enter in single-line inputs and
 Cmd+Enter submit; Esc cancels. The prompt textarea starts at four rows and grows to about
-12, then scrolls internally. Needs and their compact add field share a row; style tags and
+12, then scrolls internally. Needs and their compact add field share a row; categories and
 source URL share a row; notes use two rows. Source previews and result-photo pickers are
 shorter. Source and result edit forms begin with a Name field prefilled with the display
 name without a matching extension. A source with a custom name shows its original filename stem underneath. Saving an
@@ -282,8 +281,8 @@ test checks that target and header visibility at 800×560.
 | `reveal_in_finder(path)` | Show a file in Finder |
 | `set_tags(tags)` | Add names to the tag vocabulary |
 | `tag_usage` | Count photos/prompts per tag, including names absent from vocabulary |
-| `remove_tag(tag)` | Strip the tag everywhere; return changed-record counts and warnings |
-| `rename_tag(from, to)` | Rename or merge everywhere; return changed-record counts and warnings |
+| `remove_tag(tag)` | Strip the photo tag from sources and prompt needs; return changed-record counts and warnings |
+| `rename_tag(from, to)` | Rename or merge sources and prompt needs; return changed-record counts and warnings |
 
 Plugins and crates: `tauri-plugin-dialog`, `tauri-plugin-opener`, `tauri-plugin-drag`,
 `trash`, `serde`/`serde_json`, `chrono`, `rand`; `tempfile` for tests.
@@ -350,7 +349,7 @@ permission. Photos replaces the source-section label; internal `sources` IDs rem
 Search and primary/secondary actions share one toolbar. Only the main pane scrolls at page
 level; long prompt text and modal lists can scroll internally. Cards use square covers and
 two compact caption lines. Tags use stable name-hashed palette dots and usage counts
-(source records plus prompts, deduplicating needs/tags within each prompt). The six most-used
+(photos in Photos; prompts in Prompts and Favorites). The six most-used
 tags appear first; expansion is stored with guarded localStorage access.
 
 Audio imports accept `.mp3`, `.m4a`, `.aac`, `.wav`, `.aif`, `.aiff` and `.flac`,
@@ -368,3 +367,34 @@ cover with `<audio controls preload="metadata">` beneath it, without autoplay. C
 pauses playback. Copy audio puts only the original file URL on NSPasteboard; drag-out uses
 the original file and a cover or app-icon drag preview. Tags, folders, source/result linking,
 Trash, backup and live refresh follow existing media behavior.
+
+## Independent photo tags and prompt categories
+
+`Library` IPC includes `tags: string[]` and `categories: string[]`. Prompt metadata stores
+`categories: string[]`; legacy `tags` is read only as a fallback when `categories` is absent.
+If both keys exist, categories wins (even an empty array). New prompt writes omit `tags`,
+including raw metadata writes during vocabulary operations. No bulk prompt migration occurs.
+Names are trimmed, empty names dropped, and duplicates removed case-insensitively in order.
+
+When `library.json.categories` is absent, scan metadata in sorted path order. Categories is
+the first-seen union of prompt categories (legacy tags). Photo tags retain existing
+names except prompt-only style names, then append missing source tags and prompt needs (builtins the user removed are not re-added).
+Unused custom photo vocabulary is preserved. Prompt-only
+style names leave the tag vocabulary. Persist once using TagLock and an atomic write; a busy
+lock or unwritable library still loads the same computed vocabularies in memory. The next
+vocabulary write persists both. An existing empty categories array is already migrated;
+removed names are never resurrected. Prompt text, IDs, media and results remain untouched.
+
+`set_categories(categories)`, `category_usage`, `rename_category(from,to)` and
+`remove_category(tag)` mirror the tag commands. Usage rows have `tag`, `sources` (zero for
+categories), and `prompts`. Tag prompt counts refer only to needs; tag mutations edit sources
+and needs, never categories. Category mutations edit prompts only. Rename to an existing
+case-insensitive name merges. Operations use the shared lock, atomic record writes, warnings
+and partial-progress reporting; they never delete prompts or media.
+
+Prompts and Favorites show Categories; Photos shows Tags. Sidebar counts exclude needs:
+prompts per category, photos per tag. Each view retains its filter. Expansion keys are
+`gallery-categories-collapsed` and `gallery-tags-collapsed`, defaulting to expanded.
+The shared manager adapts its heading, counts and confirmations. Prompt Categories tokens
+suggest only categories; Needs and photo Tags suggest only photo tags. Prompt detail keeps
+needs badges alongside categories. Search matches prompt categories and photo tags.

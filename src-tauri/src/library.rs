@@ -26,6 +26,8 @@ pub struct Folder {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LibraryMeta {
+    #[serde(default)]
+    pub categories: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub folders: Vec<Folder>,
     pub app: String,
@@ -51,14 +53,73 @@ pub struct Source {
     pub created_at: String,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(from = "PromptInputRead", rename_all = "camelCase")]
 pub struct PromptInput {
     pub title: String,
     pub needs: Vec<String>,
-    pub tags: Vec<String>,
+    pub categories: Vec<String>,
     pub source_url: String,
     pub notes: String,
     pub favorite: bool,
+}
+// Separate legacy field avoids serde alias duplicate-field errors when both exist.
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PromptInputRead {
+    title: String,
+    needs: Vec<String>,
+    categories: Option<Vec<String>>,
+    #[serde(default)]
+    tags: Vec<String>,
+    source_url: String,
+    notes: String,
+    favorite: bool,
+}
+impl From<PromptInputRead> for PromptInput {
+    fn from(v: PromptInputRead) -> Self {
+        Self {
+            title: v.title,
+            needs: v.needs,
+            categories: clean_names(v.categories.unwrap_or(v.tags)),
+            source_url: v.source_url,
+            notes: v.notes,
+            favorite: v.favorite,
+        }
+    }
+}
+fn clean_names(names: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    names
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && seen.insert(s.to_lowercase()))
+        .collect()
+}
+fn category_names(names: Vec<String>, vocabulary: &[String]) -> Vec<String> {
+    clean_names(names)
+        .into_iter()
+        .map(|name| {
+            vocabulary
+                .iter()
+                .find(|v| v.to_lowercase() == name.to_lowercase())
+                .cloned()
+                .unwrap_or(name)
+        })
+        .collect()
+}
+fn prompt_categories(value: &serde_json::Value) -> Vec<String> {
+    serde_json::from_value(
+        value
+            .get("categories")
+            .or_else(|| value.get("tags"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([])),
+    )
+    .unwrap_or_default()
+}
+fn canonicalize_prompt(value: &mut serde_json::Value) {
+    value["categories"] = serde_json::json!(clean_names(prompt_categories(value)));
+    value.as_object_mut().unwrap().remove("tags");
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,6 +170,7 @@ pub struct PromptRecord {
 }
 #[derive(Debug, Serialize)]
 pub struct Library {
+    pub categories: Vec<String>,
     pub folders: Vec<Folder>,
     pub root: String,
     pub tags: Vec<String>,
@@ -201,11 +263,59 @@ fn write_json(path: &Path, data: &impl Serialize) -> Outcome<()> {
     atomic_write(path, &serde_json::to_vec_pretty(data).map_err(err)?)
 }
 pub fn marker(root: &Path) -> Outcome<LibraryMeta> {
-    let m: LibraryMeta = read(&safe(root, "library.json")?)?;
+    marker_with_lock(root, None)
+}
+fn marker_with_lock(root: &Path, lock: Option<&TagLock>) -> Outcome<LibraryMeta> {
+    let mut m: LibraryMeta = read(&safe(root, "library.json")?)?;
     if m.app != "prompt-gallery" || m.version != 1 {
         return Err("This is not a supported Prompt Gallery v1 library".into());
     }
+    if m.categories.is_none() {
+        let mut warnings = vec![];
+        let records = tag_records(root, &mut warnings, lock)?;
+        let mut categories = vec![];
+        // Keep the user's existing photo vocabulary; never re-add builtins they removed.
+        let mut used = Vec::<String>::new();
+        for (_, value, prompt) in records {
+            if prompt {
+                categories.extend(prompt_categories(&value));
+            }
+            used.extend(
+                serde_json::from_value::<Vec<String>>(
+                    value[if prompt { "needs" } else { "tags" }].clone(),
+                )
+                .unwrap_or_default(),
+            );
+        }
+        let keys = used
+            .iter()
+            .map(|s| s.trim().to_lowercase())
+            .collect::<std::collections::HashSet<_>>();
+        let styles = categories
+            .iter()
+            .map(|s| s.trim().to_lowercase())
+            .collect::<std::collections::HashSet<_>>();
+        m.tags.retain(|t| {
+            keys.contains(&t.trim().to_lowercase()) || !styles.contains(&t.trim().to_lowercase())
+        });
+        m.tags.extend(used);
+        m.tags = clean_names(m.tags);
+        m.categories = Some(clean_names(categories));
+    }
     Ok(m)
+}
+fn migrate_vocabularies(root: &Path) {
+    let result = (|| -> Outcome<()> {
+        let raw: serde_json::Value = read(&safe(root, "library.json")?)?;
+        if raw.get("categories").is_some() {
+            return Ok(());
+        }
+        let lock = TagLock::acquire_for(root, std::time::Duration::ZERO)?;
+        let m = marker_with_lock(root, Some(&lock))?;
+        lock.renew()?;
+        write_json(&safe(root, "library.json")?, &m)
+    })();
+    let _ = result; // Read-only/busy libraries still receive the computed snapshot.
 }
 pub fn open_library(path: &Path, confirm_nonempty: bool) -> Outcome<PathBuf> {
     let root = fs::canonicalize(path).map_err(err)?;
@@ -232,6 +342,7 @@ pub fn open_library(path: &Path, confirm_nonempty: bool) -> Outcome<PathBuf> {
             &marker_path,
             &LibraryMeta {
                 folders: vec![],
+                categories: Some(vec![]),
                 app: "prompt-gallery".into(),
                 version: 1,
                 tags: BUILTIN_TAGS.iter().map(|s| s.to_string()).collect(),
@@ -482,9 +593,11 @@ fn entries(root: &Path, dir: &str, warnings: &mut Vec<String>) -> Vec<PathBuf> {
     }
 }
 pub fn load_library(root: &Path) -> Outcome<Library> {
+    migrate_vocabularies(root);
     let m = marker(root)?;
     let mut lib = Library {
         root: root.to_string_lossy().into(),
+        categories: m.categories.unwrap_or_default(),
         folders: m.folders,
         tags: m.tags,
         sources: vec![],
@@ -578,6 +691,12 @@ pub fn load_library(root: &Path) -> Outcome<Library> {
             Err(e) => lib.warnings.push(format!("Skipped {}: {e}", p.display())),
         }
     }
+    for prompt in &mut lib.prompts {
+        prompt.meta.fields.categories = category_names(
+            std::mem::take(&mut prompt.meta.fields.categories),
+            &lib.categories,
+        );
+    }
     lib.sources
         .sort_by(|a, b| b.meta.created_at.cmp(&a.meta.created_at));
     lib.prompts
@@ -585,16 +704,21 @@ pub fn load_library(root: &Path) -> Outcome<Library> {
     Ok(lib)
 }
 pub fn set_tags(root: &Path, tags: Vec<String>) -> Outcome<()> {
-    let _lock = TagLock::acquire(root)?;
-    let mut m = marker(root)?;
-    m.tags.extend(
-        tags.into_iter()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>(),
-    );
-    m.tags.sort();
-    m.tags.dedup();
+    set_vocabulary(root, tags, false)
+}
+pub fn set_categories(root: &Path, categories: Vec<String>) -> Outcome<()> {
+    set_vocabulary(root, categories, true)
+}
+fn set_vocabulary(root: &Path, names: Vec<String>, categories: bool) -> Outcome<()> {
+    let lock = TagLock::acquire(root)?;
+    let mut m = marker_with_lock(root, Some(&lock))?;
+    let values = if categories {
+        m.categories.as_mut().unwrap()
+    } else {
+        &mut m.tags
+    };
+    values.extend(names);
+    *values = clean_names(std::mem::take(values));
     write_json(&safe(root, "library.json")?, &m)
 }
 #[derive(Debug, Serialize)]
@@ -614,14 +738,16 @@ pub struct TagChange {
 fn tag_records(
     root: &Path,
     warnings: &mut Vec<String>,
-    lock: &TagLock,
+    lock: Option<&TagLock>,
 ) -> Outcome<Vec<(PathBuf, serde_json::Value, bool)>> {
     let mut records = vec![];
     for (dir, is_prompt) in [("sources", false), ("prompts", true)] {
         let mut paths = entries(root, dir, warnings);
         paths.sort();
         for entry in paths {
-            lock.renew()?;
+            if let Some(lock) = lock {
+                lock.renew()?;
+            }
             if !is_prompt && entry.extension().and_then(|s| s.to_str()) != Some("json") {
                 continue;
             }
@@ -660,24 +786,51 @@ fn tag_records(
     Ok(records)
 }
 pub fn tag_usage(root: &Path) -> Outcome<Vec<TagUsage>> {
+    vocabulary_usage(root, false)
+}
+pub fn category_usage(root: &Path) -> Outcome<Vec<TagUsage>> {
+    vocabulary_usage(root, true)
+}
+fn vocabulary_usage(root: &Path, categories: bool) -> Outcome<Vec<TagUsage>> {
     let lock = TagLock::acquire(root)?;
     let mut counts = std::collections::BTreeMap::<String, (usize, usize)>::new();
-    for tag in marker(root)?.tags {
+    let m = marker_with_lock(root, Some(&lock))?;
+    for tag in if categories {
+        m.categories.unwrap_or_default()
+    } else {
+        m.tags
+    } {
         counts.entry(tag).or_default();
     }
     let mut warnings = vec![];
-    for (_, value, is_prompt) in tag_records(root, &mut warnings, &lock)? {
+    for (_, value, is_prompt) in tag_records(root, &mut warnings, Some(&lock))? {
         lock.renew()?;
+        if categories && !is_prompt {
+            continue;
+        }
+        let mut value = value;
+        if is_prompt {
+            canonicalize_prompt(&mut value);
+        }
         let mut seen = std::collections::HashSet::new();
         for field in if is_prompt {
-            &["needs", "tags"][..]
+            if categories {
+                &["categories"][..]
+            } else {
+                &["needs"][..]
+            }
         } else {
             &["tags"][..]
         } {
             for tag in value[field].as_array().unwrap() {
                 let tag = tag.as_str().unwrap();
-                if seen.insert(tag) {
-                    let count = counts.entry(tag.into()).or_default();
+                if seen.insert(tag.to_lowercase()) {
+                    let name = counts
+                        .keys()
+                        .find(|name| name.to_lowercase() == tag.to_lowercase())
+                        .cloned()
+                        .unwrap_or_else(|| tag.into());
+                    let count = counts.entry(name).or_default();
                     if is_prompt {
                         count.1 += 1;
                     } else {
@@ -704,42 +857,80 @@ fn replace_tag(tags: &mut Vec<String>, from: &str, to: Option<&str>) {
     *tags = tags
         .iter()
         .filter_map(|tag| {
-            let tag = if tag == from { to? } else { tag.as_str() };
-            seen.insert(tag.to_string()).then(|| tag.to_string())
+            let tag = if tag.to_lowercase() == from.to_lowercase() {
+                to?
+            } else {
+                tag.as_str()
+            };
+            seen.insert(tag.to_lowercase()).then(|| tag.to_string())
         })
         .collect();
 }
 pub fn remove_tag(root: &Path, tag: &str) -> Outcome<TagChange> {
-    change_tag(root, tag, None)
+    change_tag(root, tag, None, false)
 }
 pub fn rename_tag(root: &Path, from: &str, to: &str) -> Outcome<TagChange> {
     let to = to.trim();
     if to.is_empty() {
         return Err("Tag names cannot be empty".into());
     }
-    change_tag(root, from, Some(to))
+    change_tag(root, from, Some(to), false)
 }
-fn change_tag(root: &Path, from: &str, to: Option<&str>) -> Outcome<TagChange> {
+pub fn remove_category(root: &Path, tag: &str) -> Outcome<TagChange> {
+    change_tag(root, tag, None, true)
+}
+pub fn rename_category(root: &Path, from: &str, to: &str) -> Outcome<TagChange> {
+    if to.trim().is_empty() {
+        return Err("Category names cannot be empty".into());
+    }
+    change_tag(root, from, Some(to.trim()), true)
+}
+fn change_tag(root: &Path, from: &str, to: Option<&str>, categories: bool) -> Outcome<TagChange> {
     if from.trim().is_empty() {
         return Err("Tag names cannot be empty".into());
     }
     let lock = TagLock::acquire(root)?;
-    let mut meta = marker(root)?;
+    let mut meta = marker_with_lock(root, Some(&lock))?;
     let mut change = TagChange::default();
-    let records = tag_records(root, &mut change.warnings, &lock)
+    let records = tag_records(root, &mut change.warnings, Some(&lock))
         .map_err(|e| tag_change_error(&change, root, &e))?;
-    let mut found = meta.tags.iter().any(|t| t == from);
+    let vocabulary = if categories {
+        meta.categories.as_mut().unwrap()
+    } else {
+        &mut meta.tags
+    };
+    let target = to.map(|to| {
+        vocabulary
+            .iter()
+            .find(|t| t.to_lowercase() == to.to_lowercase())
+            .cloned()
+            .unwrap_or_else(|| to.into())
+    });
+    let to = target.as_deref();
+    let mut found = vocabulary
+        .iter()
+        .any(|t| t.to_lowercase() == from.to_lowercase());
     for (path, mut value, is_prompt) in records {
+        if categories && !is_prompt {
+            continue;
+        }
+        if is_prompt {
+            canonicalize_prompt(&mut value);
+        }
         lock.renew()
             .map_err(|e| tag_change_error(&change, &path, &e))?;
         let mut changed = false;
         for field in if is_prompt {
-            &["needs", "tags"][..]
+            if categories {
+                &["categories"][..]
+            } else {
+                &["needs"][..]
+            }
         } else {
             &["tags"][..]
         } {
             let old: Vec<String> = serde_json::from_value(value[field].clone()).map_err(err)?;
-            if !old.iter().any(|t| t == from) {
+            if !old.iter().any(|t| t.to_lowercase() == from.to_lowercase()) {
                 continue;
             }
             found = true;
@@ -763,16 +954,16 @@ fn change_tag(root: &Path, from: &str, to: Option<&str>) -> Outcome<TagChange> {
             change.sources += 1;
         }
     }
-    let old = meta.tags.clone();
-    replace_tag(&mut meta.tags, from, to);
+    let old = vocabulary.clone();
+    replace_tag(vocabulary, from, to);
     if found {
         if let Some(to) = to {
-            if !meta.tags.iter().any(|t| t == to) {
-                meta.tags.push(to.into());
+            if !vocabulary.iter().any(|t| t == to) {
+                vocabulary.push(to.into());
             }
         }
     }
-    if meta.tags != old {
+    if (*vocabulary) != old || found {
         lock.renew()
             .map_err(|e| tag_change_error(&change, root, &e))?;
         let path = safe(root, "library.json").map_err(|e| tag_change_error(&change, root, &e))?;
@@ -876,8 +1067,12 @@ fn validate_prompt(m: &PromptInput) -> Outcome<()> {
         Ok(())
     }
 }
-pub fn create_prompt(root: &Path, meta: PromptInput, text: String) -> Outcome<String> {
+pub fn create_prompt(root: &Path, mut meta: PromptInput, text: String) -> Outcome<String> {
     marker(root)?;
+    meta.categories = category_names(
+        meta.categories,
+        &marker(root)?.categories.unwrap_or_default(),
+    );
     validate_prompt(&meta)?;
     let id = id(root)?;
     fs::create_dir(safe(root, format!("prompts/{id}"))?).map_err(err)?;
@@ -894,10 +1089,38 @@ pub fn create_prompt(root: &Path, meta: PromptInput, text: String) -> Outcome<St
     )?;
     write_json(&safe(root, format!("prompts/{id}/meta.json"))?, &m)?;
     add_tags(root, &m.fields.needs)?;
+    set_categories(root, m.fields.categories.clone())?;
     Ok(id)
 }
-pub fn update_prompt(root: &Path, id: &str, meta: PromptInput, text: String) -> Outcome<()> {
+/// One-time helper: add each prompt's `needs` to its categories. Keeps `updatedAt`
+/// (prompt order) and prompt text untouched; returns how many prompts changed.
+pub fn copy_needs_to_categories(root: &Path) -> Outcome<usize> {
+    let lib = load_library(root)?;
+    let mut added = vec![];
+    let mut changed = 0;
+    for p in &lib.prompts {
+        let path = safe(root, format!("prompts/{}/meta.json", p.meta.id))?;
+        let mut m: PromptMeta = read(&path)?;
+        let before = m.fields.categories.clone();
+        let mut next = before.clone();
+        next.extend(m.fields.needs.iter().cloned());
+        let next = category_names(next, &lib.categories);
+        if next.len() != before.len() {
+            added.extend(next.iter().cloned());
+            m.fields.categories = next;
+            write_json(&path, &m)?;
+            changed += 1;
+        }
+    }
+    set_categories(root, added)?;
+    Ok(changed)
+}
+pub fn update_prompt(root: &Path, id: &str, mut meta: PromptInput, text: String) -> Outcome<()> {
     valid_id(id)?;
+    meta.categories = category_names(
+        meta.categories,
+        &marker(root)?.categories.unwrap_or_default(),
+    );
     validate_prompt(&meta)?;
     let path = safe(root, format!("prompts/{id}/meta.json"))?;
     let mut m: PromptMeta = read(&path)?;
@@ -910,6 +1133,12 @@ pub fn update_prompt(root: &Path, id: &str, meta: PromptInput, text: String) -> 
         .filter(|t| !m.fields.needs.contains(t))
         .cloned()
         .collect();
+    let new_categories = meta
+        .categories
+        .iter()
+        .filter(|t| !m.fields.categories.contains(t))
+        .cloned()
+        .collect();
     m.fields = meta;
     m.updated_at = now();
     atomic_write(
@@ -917,7 +1146,8 @@ pub fn update_prompt(root: &Path, id: &str, meta: PromptInput, text: String) -> 
         text.as_bytes(),
     )?;
     write_json(&path, &m)?;
-    add_tags(root, &new_needs)
+    add_tags(root, &new_needs)?;
+    set_categories(root, new_categories)
 }
 pub fn add_result(
     root: &Path,
@@ -1028,6 +1258,9 @@ impl TagLock {
             .map_err(err)
     }
     fn acquire(root: &Path) -> Outcome<Self> {
+        Self::acquire_for(root, std::time::Duration::from_secs(5))
+    }
+    fn acquire_for(root: &Path, timeout: std::time::Duration) -> Outcome<Self> {
         use std::time::{Duration, Instant};
         let start = Instant::now();
         loop {
@@ -1062,7 +1295,7 @@ impl TagLock {
                             Err(e) => return Err(err(e)),
                         }
                     }
-                    if start.elapsed() >= Duration::from_secs(5) {
+                    if start.elapsed() >= timeout {
                         return Err(
                             "Timed out waiting for .prompt-gallery.lock; retry shortly".into()
                         );
@@ -1136,8 +1369,8 @@ pub fn folder_name(name: &str) -> Outcome<String> {
 }
 pub fn create_folder(root: &Path, name: &str, reuse: bool) -> Outcome<Folder> {
     let name = folder_name(name)?;
-    let _lock = TagLock::acquire(root)?;
-    let mut m = marker(root)?;
+    let lock = TagLock::acquire(root)?;
+    let mut m = marker_with_lock(root, Some(&lock))?;
     if let Some(f) = m
         .folders
         .iter()
@@ -1166,8 +1399,8 @@ pub fn create_folder(root: &Path, name: &str, reuse: bool) -> Outcome<Folder> {
 }
 pub fn rename_folder(root: &Path, id: &str, name: &str) -> Outcome<()> {
     let name = folder_name(name)?;
-    let _lock = TagLock::acquire(root)?;
-    let mut m = marker(root)?;
+    let lock = TagLock::acquire(root)?;
+    let mut m = marker_with_lock(root, Some(&lock))?;
     if m.folders
         .iter()
         .any(|f| f.id != id && f.name.to_lowercase() == name.to_lowercase())
@@ -1183,7 +1416,7 @@ pub fn rename_folder(root: &Path, id: &str, name: &str) -> Outcome<()> {
 }
 pub fn move_sources(root: &Path, ids: &[String], folder: Option<String>) -> Outcome<()> {
     let lock = TagLock::acquire(root)?;
-    let m = marker(root)?;
+    let m = marker_with_lock(root, Some(&lock))?;
     if folder
         .as_ref()
         .is_some_and(|id| !m.folders.iter().any(|f| &f.id == id))
@@ -1215,12 +1448,12 @@ pub fn move_sources(root: &Path, ids: &[String], folder: Option<String>) -> Outc
 }
 pub fn delete_folder(root: &Path, id: &str) -> Outcome<()> {
     let lock = TagLock::acquire(root)?;
-    let mut m = marker(root)?;
+    let mut m = marker_with_lock(root, Some(&lock))?;
     if !m.folders.iter().any(|f| f.id == id) {
         return Err("Folder not found".into());
     }
     let mut warnings = vec![];
-    let records = tag_records(root, &mut warnings, &lock)?;
+    let records = tag_records(root, &mut warnings, Some(&lock))?;
     if !warnings.is_empty() {
         return Err(warnings.join("; "));
     }

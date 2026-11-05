@@ -126,4 +126,14 @@ source), and a Windows port (see README).
 - Source and result edit dialogs share a two-column inspector. Folder and tag controls in
   `controls.js` use hidden form values and dispose popovers when dialogs close or change.
   Keep popovers below header actions; Escape first closes a popover or reverts a title edit.
-  Needs and style tags remain separate token fields; bulk source-photo selection is unchanged.
+  Needs and categories remain separate token fields; bulk source-photo selection is unchanged.
+
+## Two independent vocabularies
+
+Photo `tags` and prompt `needs` use `library.json.tags`; prompt `categories` use
+`library.json.categories`. Tag operations must never edit categories; category operations
+must never edit sources or needs. Legacy prompt `tags` loads as categories unless an explicit
+categories key exists. Save only categories. When the category vocabulary is absent, migrate
+under TagLock atomically: union prompt categories in first-seen order, keep existing photo tags/source
+usage/needs in photo tags. Busy or read-only loads compute in memory and defer persistence.
+Never bulk-rewrite prompt metadata for migration or resurrect removed names after migration.

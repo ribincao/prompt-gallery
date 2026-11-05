@@ -65,7 +65,8 @@ Drag the thumbnail straight into the chat instead.
 - **Add results fast**: paste a copied image with ⌘V, drop files onto a prompt card, or pick
   them. A ChatGPT link on your clipboard is filled in automatically.
 - **Link results to photos** by clicking thumbnails, one result or many at once.
-- **Search and filter** by title, prompt text, tags and notes; mark favorites.
+- **Independent categories and tags.** Categories organize prompts; tags organize photos.
+  Search prompts by category and photos by tag, alongside title, text and notes; mark favorites.
 - **Light and dark mode**, following the system.
 
 ## Your data stays yours
@@ -78,11 +79,11 @@ The library is plain files you can open without the app:
 
 ```
 Prompt Library/
-  library.json          marks the folder as a library, holds your tag list
+  library.json          marks the folder as a library, holds photo tags and prompt categories
   sources/              your photos (copied in unchanged) + one .json each
   prompts/<id>/
     prompt.md           the prompt text, exactly as written
-    meta.json           title, needs, tags, notes, source link
+    meta.json           title, needs, categories, notes, source link
     results/            generated images + one .json each
   .thumbs/              thumbnails, safe to delete (rebuilt automatically)
 ```
@@ -169,18 +170,20 @@ make clean                   # remove build output
    comma adds a chip, × removes it, and Backspace in an empty field removes the last chip.
    Arrow keys navigate suggestions and Esc closes the menu.
 3. **Create a prompt** with **+ New** (⌘N). Paste the text, give it a title, and choose
-   which kinds of photo it needs. Needs and style tags use separate token fields. Pasting a long block of text into an empty prompt grid starts
+   which kinds of photo it needs. Needs and categories use separate token fields. Pasting a long block of text into an empty prompt grid starts
    a new prompt for you.
 4. **Try it.** Open the prompt, click **Copy prompt**, then find a photo in **Photos** (folders,
    tags or search) and send it to ChatGPT: drag it into the chat, or select it, press ⌘C and
    paste there.
 5. **Save the results.** Copy the generated image in ChatGPT and press ⌘V in the prompt, or drop
    the files onto the prompt card. Click the photos you used and keep the chat link.
-6. **Manage tags.** Click **Edit** beside **Tags** to open **Manage tags**. Add a
-   tag, rename it, or remove it from the vocabulary and every photo and prompt. Renaming
-   to an existing name merges the tags. Inline confirmations explain removal and merging;
-   photos, prompts and results are kept. Each row shows how many photos and prompts use it.
-7. **Come back later.** Search, filter by tag, open a result full size, and use **Open chat** to
+6. **Manage tags and categories.** Prompts and Favorites show **Categories** in the sidebar;
+   Photos shows **Tags**. Click **Edit** to add, rename, merge or remove entries from the
+   corresponding vocabulary. Categories affect prompts only; tags affect photos and prompt
+   needs. Neither operation deletes photos, prompts or results. Each view remembers its own
+   filter and expanded list. Category counts show prompts; tag counts show photos, with prompt
+   needs counts also available in Manage tags.
+7. **Come back later.** Search, filter by category or photo tag, open a result full size, and use **Open chat** to
    jump back into the conversation.
 
 | Shortcut | Does |
@@ -281,3 +284,8 @@ file URL. Audio paste is not supported. Duration is best-effort via Spotlight.
 The integrated title bar holds search and view actions. Sidebar tags are ordered by usage,
 with all tags shown by default and **Show less** to collapse to the top six; **Edit** opens tag management.
 Square previews, one-line names and muted tags keep the grid compact in light and dark mode.
+
+Existing libraries migrate their shared vocabulary on load: prompt style tags become categories,
+while existing photo tags, source tags and prompt needs remain photo tags (removed builtins are not re-added). Prompt files convert from `tags`
+to `categories` only when saved. A busy lock or read-only library uses the migrated vocabulary
+in memory until it can be saved. New `library.json` files include `"categories": []` beside `tags`.

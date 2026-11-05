@@ -8,7 +8,7 @@ export function tokenControl(name, chosen, esc, label = 'Tags', hint = '') {
 export function inlineName(value, esc, file = "") {
   return `<input class="inline-name" data-file="${esc(file)}" name="name" aria-label="Name" value="${esc(value)}" placeholder="Name">`;
 }
-export function mountControls(root, { folders, tags, createFolder, esc, tagColor, report, normalizeName = value => value }) {
+export function mountControls(root, { folders, tags, categories = () => [], createFolder, esc, tagColor, report, normalizeName = value => value }) {
   const doc = root.ownerDocument, win = doc.defaultView;
   const commits = [];
   let active = null, serial = 0;
@@ -104,23 +104,25 @@ export function mountControls(root, { folders, tags, createFolder, esc, tagColor
   root.querySelectorAll('.token-control').forEach(host => {
     let chosen = JSON.parse(host.dataset.chosen);
     const input = host.querySelector('.token-input'), chips = host.querySelector('.tokens'), name = host.dataset.name;
+    const vocabulary = name === "categories" ? categories : tags;
+    input.placeholder = name === "categories" ? "+ Add category" : "+ Add tag";
     function render() {
       chips.innerHTML = chosen.map((tag, i) => `<span class="tag-token"><span class="tag-dot tone-${tagColor(tag)}" aria-hidden="true"></span><span>${esc(tag)}</span><button type="button" data-remove="${i}" aria-label="Remove ${esc(tag)}">×</button><input type="hidden" name="${esc(name)}" value="${esc(tag)}"></span>`).join('');
     }
     function add(text) {
       for (let tag of text.split(',').map(s => s.trim()).filter(Boolean)) {
-        tag = tags().find(t => t.toLowerCase() === tag.toLowerCase()) || tag;
+        tag = vocabulary().find(t => t.toLowerCase() === tag.toLowerCase()) || tag;
         if (!chosen.includes(tag)) chosen.push(tag);
       }
       input.value = ''; render(); active?.close();
     }
     function suggest() {
       const q = input.value.trim().toLowerCase();
-      const options = [...new Set(tags())].filter(t => !chosen.includes(t) && t.toLowerCase().includes(q)).sort((a,b) => (a.toLowerCase().startsWith(q) ? 0 : 1) - (b.toLowerCase().startsWith(q) ? 0 : 1) || a.localeCompare(b)).map(t => {
+      const options = [...new Set(vocabulary())].filter(t => !chosen.includes(t) && t.toLowerCase().includes(q)).sort((a,b) => (a.toLowerCase().startsWith(q) ? 0 : 1) - (b.toLowerCase().startsWith(q) ? 0 : 1) || a.localeCompare(b)).map(t => {
         const start = t.toLowerCase().indexOf(q);
         return {label:t, html:q ? `${esc(t.slice(0,start))}<mark>${esc(t.slice(start,start+q.length))}</mark>${esc(t.slice(start+q.length))}` : esc(t)};
       });
-      if (q && !tags().some(t => t.toLowerCase() === q)) options.push({label:input.value.trim(), html:`Create “${esc(input.value.trim())}”`});
+      if (q && !vocabulary().some(t => t.toLowerCase() === q)) options.push({label:input.value.trim(), html:`Create “${esc(input.value.trim())}”`});
       if (!options.length) { active?.close(); return; }
       popup(input, options, option => { add(option.label); input.focus(); });
     }

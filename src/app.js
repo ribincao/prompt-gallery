@@ -130,7 +130,7 @@ function showModal(title, body, submit) {
   dialogControls?.destroy();
   modal.classList.toggle("inspector-dialog", body.includes('class="item-inspector"'));
   modalSubmit = submit;
-  modal.classList.toggle("tag-manager", title === "Manage tags");
+  modal.classList.toggle("tag-manager", ["Manage tags", "Manage categories"].includes(title));
   $("#modal-content").innerHTML =
     `<div class="dialog-heading"><div class="dialog-header"><h2>${esc(title)}</h2></div><p id="modal-error" class="inline-error" role="alert"></p></div><form id="dialog-form">${body}</form>`;
   const actions = $(".form-actions", $("#dialog-form"));
@@ -145,7 +145,7 @@ function showModal(title, body, submit) {
     requestAnimationFrame(grow);
   }
   dialogControls = mountControls($("#dialog-form"), {
-    folders, tags: () => library?.tags || [], esc, tagColor, report, normalizeName: stem,
+    folders, tags: () => library?.tags || [], categories: () => library?.categories || [], esc, tagColor, report, normalizeName: stem,
     createFolder: async name => {
       const folder = await invoke("create_folder", { name });
       library.folders = [...folders(), folder];
@@ -200,23 +200,27 @@ function renderSidebar() {
   $("#nav-sources").classList.toggle("active", view === "sources");
   $("#favorites").classList.toggle("active", view === "prompts" && favorites);
   $("#favorites").setAttribute("aria-pressed", String(favorites));
-  $("#favorites").disabled = view === "sources";
+
   $("#library-path").textContent = library.root;
   $("#library-path").title = library.root;
   $("#favorite-count").textContent = library.prompts.filter(p => p.favorite).length;
-  const usage = new Map(library.tags.map(t => [t, 0]));
-  for (const item of [...library.sources, ...library.prompts]) {
-    for (const tag of new Set([...(item.tags || []), ...(item.needs || [])])) usage.set(tag, (usage.get(tag) || 0) + 1);
+  const isCategories = view === "prompts", label = isCategories ? "Categories" : "Tags";
+  $("#vocabulary-label").textContent = label;
+  $("#manage-tags").setAttribute("aria-label", `Manage ${label.toLowerCase()}`);
+  const tagsExpanded = expanded[view];
+  const usage = new Map((isCategories ? library.categories : library.tags).map(t => [t, 0]));
+  for (const item of isCategories ? library.prompts : library.sources) {
+    for (const tag of new Set(isCategories ? item.categories : item.tags)) usage.set(tag, (usage.get(tag) || 0) + 1);
   }
   const tags = [...usage.keys()].sort((a, b) => usage.get(b) - usage.get(a) || a.localeCompare(b));
   const shown = tagsExpanded ? tags : tags.slice(0, 6);
   if (filter && !shown.includes(filter)) shown.push(filter);
-  $("#tags").innerHTML = `<button class="tag-filter ${!filter ? "active" : ""}" data-action="filter" data-tag="" aria-pressed="${!filter}">All tags</button>` + shown.map(t =>
+  $("#tags").innerHTML = `<button class="tag-filter ${!filter ? "active" : ""}" data-action="filter" data-tag="" aria-pressed="${!filter}">All ${label.toLowerCase()}</button>` + shown.map(t =>
     `<button class="tag-filter ${filter === t ? "active" : ""}" data-action="filter" data-tag="${esc(t)}" aria-pressed="${filter === t}"><span class="tag-dot tone-${tagColor(t)}" aria-hidden="true"></span><span class="tag-label">${esc(t)}</span><span class="count">${usage.get(t)}</span></button>`).join("") +
     (tags.length > 6 ? `<button id="more-tags" aria-expanded="${tagsExpanded}">${tagsExpanded ? "Show less" : `${tags.length - shown.length} more`}</button>` : "");
   $("#more-tags")?.addEventListener("click", () => {
-    tagsExpanded = !tagsExpanded;
-    try { localStorage.setItem("gallery-tags-collapsed", String(!tagsExpanded)); } catch {}
+    expanded[view] = !tagsExpanded;
+    try { localStorage.setItem(isCategories ? "gallery-categories-collapsed" : "gallery-tags-collapsed", String(!expanded[view])); } catch {}
     renderSidebar();
   });
 }
@@ -237,8 +241,9 @@ function render() {
   }
   header.remove();
 }
-let tagsExpanded = true;
-try { tagsExpanded = localStorage.getItem("gallery-tags-collapsed") !== "true"; } catch {}
+const expanded = {prompts: true, sources: true};
+const filters = {prompts: "", sources: ""};
+try { expanded.sources = localStorage.getItem("gallery-tags-collapsed") !== "true"; expanded.prompts = localStorage.getItem("gallery-categories-collapsed") !== "true"; } catch {}
 function tagColor(name) {
   let hash = 0;
   for (const char of name) hash = (Math.imul(hash, 31) + char.codePointAt(0)) | 0;
@@ -256,7 +261,7 @@ function renderView() {
   resultSelection.reset();
   const isPrompts = view === "prompts";
   const items = (isPrompts ? library.prompts : library.sources).filter((item) => {
-    const tags = isPrompts ? [...item.tags, ...item.needs] : item.tags;
+    const tags = isPrompts ? item.categories : item.tags;
     const text = isPrompts ? [item.title, item.text, item.notes, ...item.results.map((r) => resultName(r, date)), ...tags] : [sourceName(item), item.originalName, item.note, ...tags];
     return (
       (!filter || tags.includes(filter)) &&
@@ -272,7 +277,7 @@ function renderView() {
 function renderPrompt() {
   const p = prompt();
   resultSelection.begin(p.id, p.results);
-  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.needs.length ? p.needs : ["text-only"])}${badges(p.tags)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<pre class="prompt-text">${esc(p.text)}</pre>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}<section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
+  main.innerHTML = `${button("back", "‹ All prompts", "back")}<header class="page-header"><div><h1>${esc(p.title)}</h1><div class="badges">${badges(p.needs.length ? p.needs : ["text-only"])}${badges(p.categories)}</div></div><div class="actions">${button("favorite-prompt", p.favorite ? "★" : "☆", "", `aria-label="${p.favorite ? "Remove from" : "Add to"} favorites"`)}${button("edit-prompt", "Edit")}${button("copy-prompt", "Copy prompt", "primary")}</div></header>${warnings()}<pre class="prompt-text">${esc(p.text)}</pre>${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}${p.sourceUrl ? button("open-url", "Original source ↗", "", `data-url="${esc(p.sourceUrl)}"`) : ""}<section><div class="section-header"><h2>Results <small>(${p.results.length})</small></h2><div class="actions">${p.results.length ? resultSelection.toolbar() : ""}${button("paste", "Paste image")}${button("pick-results", "+ Add result")}</div></div>${p.results.length ? `<div class="grid">${p.results.map((r) => resultSelection.card(r, p.id)).join("")}</div>` : '<p class="muted">Drop, paste, or choose a generated image to keep it with this prompt.</p>'}</section><div class="section-header">${button("delete-prompt", "Move prompt to Trash", "danger")}</div>`;
 }
 
 let pendingLibraryRefresh = false;
@@ -335,13 +340,13 @@ function editPrompt(existing = null, text = "") {
   const p = existing;
   showModal(
     p ? "Edit prompt" : "New prompt",
-    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 4, full: true })}<div class="full"><label class="field">Photos it needs<small>Photos with these tags are listed first when you link results. Leave empty for a text-only prompt.</small></label>${tagTokens("needs", p?.needs, "Needs")}</div>${tagTokens("tags", p?.tags, "Style tags", "Describe the look or style of this prompt.")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
+    `<div class="form-grid">${field("Title", "title", p?.title || "", { required: true, full: true })}${field("Prompt text", "text", p?.text ?? text, { area: true, rows: 4, full: true })}<div class="full"><label class="field">Photos it needs<small>Photos with these tags are listed first when you link results. Leave empty for a text-only prompt.</small></label>${tagTokens("needs", p?.needs, "Needs")}</div>${tagTokens("categories", p?.categories, "Categories")}${field("Source URL", "sourceUrl", p?.sourceUrl || "")}${field("Notes", "notes", p?.notes || "", { area: true, full: true })}</div>${footer(p ? "Save changes" : "Create prompt")}`,
     async (form) => {
       const values = new FormData(form),
         meta = {
           title: values.get("title").trim(),
           needs: collectedTags(form, "needs"),
-          tags: values.getAll("tags"),
+          categories: values.getAll("categories"),
           sourceUrl: values.get("sourceUrl").trim(),
           notes: values.get("notes"),
           favorite: p?.favorite || false,
@@ -349,7 +354,7 @@ function editPrompt(existing = null, text = "") {
       if (p) await invoke("update_prompt", { id: p.id, meta, text: values.get("text") });
       else promptId = await invoke("create_prompt", { meta, text: values.get("text") });
       closeModal();
-      view = "prompts";
+      filters[view] = filter; view = "prompts"; filter = filters.prompts;
       await refresh();
       toast("Prompt saved");
     },
@@ -622,7 +627,9 @@ async function pickResults(pid = promptId) {
 }
 function navigate(next) {
   sourceFolder = null; sourceMode = false; selectedSources.clear();
+  filters[view] = filter;
   view = next;
+  filter = filters[view];
   promptId = null;
   selectedSource = null;
   render();
@@ -765,20 +772,24 @@ $("#search").addEventListener("input", (e) => {
   render();
 });
 $("#favorites").addEventListener("click", () => {
-  favorites = !favorites;
+  const nextFavorite = view !== "prompts" || !favorites;
+  if (view !== "prompts") navigate("prompts");
+  favorites = nextFavorite;
   promptId = null;
   render();
 });
+let managerCategories = false;
 let tagRows = [];
 let tagEdit = null;
-const tagUse = (row) => `${row.sources} photo${row.sources === 1 ? "" : "s"} · ${row.prompts} prompt${row.prompts === 1 ? "" : "s"}`;
+const tagUse = (row) => managerCategories ? `${row.prompts} prompts` : `${row.sources} photo${row.sources === 1 ? "" : "s"} · ${row.prompts} prompt${row.prompts === 1 ? "" : "s"} using this in Needs`;
 async function manageTags() {
-  tagRows = await invoke("tag_usage");
+  managerCategories = view === "prompts";
+  tagRows = await invoke(managerCategories ? "category_usage" : "tag_usage");
   tagEdit = null;
-  showModal("Manage tags", `<div class="add-tag">${field("Add tag", "newTag")}<button type="submit" class="primary">Add</button></div><div id="tag-list" aria-label="Tags"></div>`, async (form) => {
+  showModal(managerCategories ? "Manage categories" : "Manage tags", `<div class="add-tag">${field(managerCategories ? "Add category" : "Add tag", "newTag")}<button type="submit" class="primary">Add</button></div><div id="tag-list" aria-label="${managerCategories ? "Categories" : "Tags"}"></div>`, async (form) => {
     if (tagEdit) return;
     const tag = form.elements.newTag.value.trim();
-    if (!tag) throw new Error("Enter a tag name.");
+    if (!tag) throw new Error(`Enter a ${managerCategories ? "category" : "tag"} name.`);
     await changeTag("set_tags", { tags: [tag] });
   });
   $(".dialog-header").insertAdjacentHTML("beforeend", button("close-modal", "Done"));
@@ -790,8 +801,8 @@ function renderTagRows() {
     let controls = `<span class="tag-name">${esc(row.tag)}</span><small>${tagUse(row)}</small><div class="actions"><button type="button" data-tag-op="rename" data-index="${index}">Rename</button><button type="button" data-tag-op="remove" data-index="${index}" class="danger">Remove</button></div>`;
     if (editing) {
       controls = tagEdit.mode === "rename"
-        ? `<label class="field">Rename ${esc(row.tag)}<input id="rename-tag" value="${esc(tagEdit.to ?? row.tag)}" aria-label="New tag name"></label><p class="tag-confirm" aria-live="polite"></p><div class="actions"><button type="button" data-tag-op="confirm" data-index="${index}" class="primary">Save</button><button type="button" data-tag-op="cancel">Cancel</button></div>`
-        : `<p>Remove '${esc(row.tag)}' from ${row.sources} photos and ${row.prompts} prompts? Photos and prompts are kept.</p><div class="actions"><button type="button" class="danger" data-tag-op="confirm" data-index="${index}">Remove</button><button type="button" data-tag-op="cancel">Cancel</button></div>`;
+        ? `<label class="field">Rename ${esc(row.tag)}<input id="rename-tag" value="${esc(tagEdit.to ?? row.tag)}" aria-label="New ${managerCategories ? "category" : "tag"} name"></label><p class="tag-confirm" aria-live="polite"></p><div class="actions"><button type="button" data-tag-op="confirm" data-index="${index}" class="primary">Save</button><button type="button" data-tag-op="cancel">Cancel</button></div>`
+        : `<p>Remove '${esc(row.tag)}' from ${managerCategories ? `${row.prompts} prompts` : `${row.sources} photos and ${row.prompts} prompt needs`}? Photos, prompts and results are kept.</p><div class="actions"><button type="button" class="danger" data-tag-op="confirm" data-index="${index}">Remove</button><button type="button" data-tag-op="cancel">Cancel</button></div>`;
     }
     return `<div class="tag-row ${editing ? "editing" : ""}">${controls}</div>`;
   }).join("");
@@ -800,8 +811,8 @@ function renderTagRows() {
     input.addEventListener("input", () => {
       tagEdit.to = input.value.trim();
       tagEdit.confirmedMerge = false;
-      const merge = tagRows.some((r) => r.tag === tagEdit.to && r.tag !== tagEdit.tag);
-      $(".tag-confirm").textContent = merge ? `This will merge '${tagEdit.tag}' into '${tagEdit.to}' on all photos and prompts.` : "Rename on all photos and prompts.";
+      const merge = tagRows.some((r) => r.tag.toLowerCase() === tagEdit.to.toLowerCase() && r.tag !== tagEdit.tag);
+      $(".tag-confirm").textContent = merge ? `This will merge '${tagEdit.tag}' into '${tagEdit.to}' on ${managerCategories ? "prompt categories" : "photos and prompt needs"}.` : `Rename on ${managerCategories ? "prompt categories" : "photos and prompt needs"}.`;
     });
     input.dispatchEvent(new Event("input"));
     input.focus();
@@ -810,12 +821,19 @@ function renderTagRows() {
 }
 async function changeTag(command, args) {
   try {
+    if (managerCategories) {
+      command = ({set_tags:"set_categories", remove_tag:"remove_category", rename_tag:"rename_category"})[command];
+      if (command === "set_categories") args = {categories: args.tags};
+    }
     const result = await invoke(command, args);
-    if (filter === (args.tag ?? args.from)) filter = args.to || "";
+    if (filter.toLowerCase() === (args.tag ?? args.from ?? "").toLowerCase()) {
+      const names = managerCategories ? library.categories : library.tags;
+      filter = names.find(t => t.toLowerCase() === args.to?.toLowerCase()) || args.to || "";
+    }
     await refresh();
     await manageTags();
     if (result) {
-      const message = `Updated ${result.sources} photos and ${result.prompts} prompts.`;
+      const message = managerCategories ? `Updated ${result.prompts} prompts.` : `Updated ${result.sources} photos and ${result.prompts} prompt needs.`;
       $("#modal-error").textContent = [message, ...(result.warnings || [])].join(" ");
     }
   } catch (error) {
@@ -839,8 +857,8 @@ $("#modal-content").addEventListener("click", (e) => {
   task(async () => {
     if (tagEdit.mode === "remove") return changeTag("remove_tag", { tag: row.tag });
     const to = $("#rename-tag").value.trim();
-    if (!to) throw new Error("Tag names cannot be empty.");
-    const merge = tagRows.some((r) => r.tag === to && r.tag !== row.tag);
+    if (!to) throw new Error(`${managerCategories ? "Category" : "Tag"} names cannot be empty.`);
+    const merge = tagRows.some((r) => r.tag.toLowerCase() === to.toLowerCase() && r.tag !== row.tag);
     if (merge && !tagEdit.confirmedMerge) {
       tagEdit.confirmedMerge = true;
       el.textContent = "Confirm merge";

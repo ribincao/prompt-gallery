@@ -365,3 +365,31 @@ pub async fn move_sources(
 ) -> Outcome<()> {
     with_root(&state, |r| library::move_sources(r, &ids, folder))
 }
+
+#[tauri::command]
+pub async fn category_usage(state: State<'_, LibraryState>) -> Outcome<Vec<library::TagUsage>> {
+    with_root(&state, library::category_usage)
+}
+#[tauri::command]
+pub async fn remove_category(
+    state: State<'_, LibraryState>,
+    tag: String,
+) -> Outcome<library::TagChange> {
+    with_root(&state, |r| library::remove_category(r, &tag))
+}
+#[tauri::command]
+pub async fn rename_category(
+    state: State<'_, LibraryState>,
+    from: String,
+    to: String,
+) -> Outcome<library::TagChange> {
+    with_root(&state, |r| library::rename_category(r, &from, &to))
+}
+
+#[tauri::command]
+pub async fn set_categories(
+    state: State<'_, LibraryState>,
+    categories: Vec<String>,
+) -> Outcome<()> {
+    with_root(&state, |r| library::set_categories(r, categories))
+}

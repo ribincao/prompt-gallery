@@ -32,6 +32,10 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
     let mut command = None;
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
+        if arg == "--help" || arg == "-h" {
+            return Ok(json!("pgallery [--library DIR] <where|tags|categories|folders|list|add> [--json]; add --categories a,b (--tags is a deprecated alias); categories --from-needs yes copies prompt needs into categories once, --needs and --source-tags are photo tags"));
+        }
+
         if arg == "--json" {
             continue;
         }
@@ -41,13 +45,14 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
                 .ok_or_else(|| format!("Missing value for {arg}"))?;
             options.entry(arg).or_default().push(value);
         } else if command.replace(arg).is_some() {
-            return Err("Expected one command: where, tags, list, add".into());
+            return Err("Expected one command: where, tags, categories, folders, list, add".into());
         }
     }
-    let command =
-        command.ok_or("Usage: pgallery [--library DIR] <where|tags|list|add> [--json]")?;
+    let command = command
+        .ok_or("Usage: pgallery [--library DIR] <where|tags|categories|list|add> [--json]")?;
     let allowed: &[&str] = match command.as_str() {
         "where" | "tags" | "folders" => &[],
+        "categories" => &["--from-needs"],
         "list" => &["--limit"],
         "add" => &[
             "--prompt-text",
@@ -55,6 +60,7 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
             "--title",
             "--needs",
             "--tags",
+            "--categories",
             "--source-url",
             "--result",
             "--result-name",
@@ -194,12 +200,22 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
     } else {
         fs::canonicalize(&path).map_err(|e| e.to_string())?
     };
-    if command == "tags" {
-        return Ok(json!(library::marker(&root)?.tags));
-    }
     let mut lib = library::load_library(&root)?;
     for warning in &lib.warnings {
         eprintln!("Warning: {warning}");
+    }
+    if command == "tags" {
+        return Ok(json!(lib.tags));
+    }
+    if command == "categories" {
+        if let Some(flag) = one("--from-needs") {
+            if flag != "yes" {
+                return Err("Use --from-needs yes to copy every prompt's needs into its categories".into());
+            }
+            let changed = library::copy_needs_to_categories(&root)?;
+            return Ok(json!({"promptsChanged": changed, "categories": library::load_library(&root)?.categories}));
+        }
+        return Ok(json!(lib.categories));
     }
     if command == "list" {
         return Ok(json!(lib
@@ -208,7 +224,7 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
             .take(limit)
             .map(|p| json!({
                 "id":p.meta.id, "title":p.meta.fields.title, "needs":p.meta.fields.needs,
-                "tags":p.meta.fields.tags, "resultCount":p.results.len()
+                "categories":p.meta.fields.categories, "tags":p.meta.fields.categories, "resultCount":p.results.len()
             }))
             .collect::<Vec<_>>()));
     }
@@ -263,7 +279,8 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
         sources.push(json!({"id":id,"reused":reused}));
     }
     let needs = tags("--needs");
-    let new_tags = tags("--tags");
+    let mut new_tags = tags("--categories");
+    merge(&mut new_tags, tags("--tags"));
     let (pid, created) = if let Some(p) = lib
         .prompts
         .iter()
@@ -271,8 +288,8 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
     {
         let mut fields = p.meta.fields.clone();
         merge(&mut fields.needs, needs.clone());
-        merge(&mut fields.tags, new_tags.clone());
-        if fields.needs != p.meta.fields.needs || fields.tags != p.meta.fields.tags {
+        merge(&mut fields.categories, new_tags.clone());
+        if fields.needs != p.meta.fields.needs || fields.categories != p.meta.fields.categories {
             library::update_prompt(&root, &p.meta.id, fields, p.text.clone())?;
         }
         (p.meta.id.clone(), false)
@@ -291,7 +308,7 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
                 PromptInput {
                     title,
                     needs: needs.clone(),
-                    tags: new_tags.clone(),
+                    categories: new_tags.clone(),
                     source_url: one("--source-url").unwrap_or_default(),
                     ..Default::default()
                 },
@@ -302,12 +319,9 @@ pub fn run(args: Vec<String>) -> Outcome<Value> {
     };
     library::set_tags(
         &root,
-        needs
-            .into_iter()
-            .chain(new_tags)
-            .chain(tags("--source-tags"))
-            .collect(),
+        needs.into_iter().chain(tags("--source-tags")).collect(),
     )?;
+    library::set_categories(&root, new_tags)?;
     let fields = ResultInput {
         source_photos: source_ids.clone(),
         chat_url: one("--chat-url").unwrap_or_default(),

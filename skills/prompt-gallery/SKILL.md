@@ -27,22 +27,24 @@ After generating or editing images, videos or audio, ask once, briefly: **“Sav
 
 On yes:
 
-- Check `pgallery where --json` and `pgallery tags --json`. If the CLI is missing, offer the install workflow above.
+- Check `pgallery where --json` and `pgallery tags --json` / `pgallery categories --json`. If the CLI is missing, offer the install workflow above.
 - Write the exact model prompt to a temporary UTF-8 text file outside the library; use `--prompt-file` to preserve newlines and avoid shell interpolation.
 - Run `pgallery add --json --prompt-file <file> --result <image> ...`. Include every output image, video or audio with a separate `--result`. Include each input/reference image, video or audio with `--source`.
 - Pass a short descriptive `--result-name` for each output when obvious (for example, "Watercolor Kujira"). Names pair in order with `--result`; use an empty string to skip an unnamed position. Optionally use `--source-name` for path references (source IDs do not consume names). Use extension-free names. Names are trimmed, at most 200 characters, and never overwrite a reused source name.
-- Suggest `--needs` based on the input photo kind (single, couple, group, pet, landscape, character-sheet, object), and useful `--tags`. Use `--source-tags` for newly imported inputs. Use no needs for text-only generation.
+- Suggest `--needs` based on the input photo kind (single, couple, group, pet, landscape, character-sheet, object), and useful `--categories`. Use `--source-tags` for newly imported inputs. Use no needs for text-only generation.
 - Set `--model` to the actual tool/model used; include `--chat-url`, `--source-url`, or `--note` only when known and useful.
 - Quote arguments appropriately for the shell. Download tool outputs to temporary files outside the library if local paths are unavailable.
 - Read the JSON output and show the prompt ID, saved result count, and reused photos. On failure, report any completed imports; do not blindly retry a partially saved batch, since results are not deduplicated.
 
-Matching prompt text reuses the existing prompt and merges tags/needs. Sources deduplicate by bytes or an existing source ID. Results are always copied. Never bypass the CLI, including when it reports an error.
+Matching prompt text reuses the existing prompt and merges categories/needs. Sources deduplicate by bytes or an existing source ID. Results are always copied. Never bypass the CLI, including when it reports an error.
 
 ## Other commands
 
 - `pgallery where --json`: resolved library and config paths.
 - `pgallery list --limit 20 --json`: prompt summaries and result counts.
-- `pgallery tags --json`: vocabulary for suggestions.
+- `pgallery tags --json`: photo tags for needs/source suggestions.
+- `pgallery categories --json`: prompt category suggestions.
+- `--categories a,b` organizes prompts; `--tags` is a deprecated compatibility alias.
 
 All commands accept `--library <folder>`. Resolution order is flag, `PROMPT_GALLERY_LIBRARY`, then the app's `config.json`. If none is set, open the app once or ask for a library folder.
 
